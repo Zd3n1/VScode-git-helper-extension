@@ -1,14 +1,29 @@
 const vscode = require('vscode');
+const axios = require('axios');
+
+// TODO: config file? env?
+const LLM_URL = 'http://localhost:11434/api/generate';
 
 /**
  * @param {vscode.ExtensionContext} context
  */
-function activate(context) {
+async function activate(context) {
 
-	console.log('Congratulations, your extension "git-agent" is now active!');
+	console.log("Asking AI");
 
-	const disposable = vscode.commands.registerCommand('git-agent.helloWorld', function () {
-		vscode.window.showInformationMessage('Hello World from git-agent!');
+	const response = await axios.post(LLM_URL, {
+		model: 'gittor',
+		message: [
+			{"role": "user", "content": "Introduce yourself"}
+		],
+		stream: false
+	});
+
+	const reply = response.data.message?.content || "(empty response)";
+	console.log("AI replied: " + reply);
+
+	const disposable = vscode.commands.registerCommand('git-agent.askGittor', function () {
+		vscode.window.showInformationMessage(reply);
 	});
 
 	context.subscriptions.push(disposable);
