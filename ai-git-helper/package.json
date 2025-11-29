@@ -14,10 +14,28 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ai-git-helper-sidebar",
+          "title": "AI Git Helper",
+          "icon": "media/ai_helper_icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "ai-git-helper-sidebar": [
+        {
+          "type": "webview",
+          "id": "ai-git-helper.chatView",
+          "name": "AI Git Chat"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "ai-git-helper.openChat",
-        "title": "AI Git Helper"
+        "title": "AI Git Helper: Open Chat"
       }
     ]
   },

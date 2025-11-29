@@ -1,154 +1,181 @@
 import * as vscode from 'vscode';
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('Congratulations, your extension "ai-git-helper" is now active!');
+    console.log('Congratulations, your extension "ai-git-helper" is active in Sidebar!');
 
-    const disposable = vscode.commands.registerCommand('ai-git-helper.openChat', () => {
-        const panel = vscode.window.createWebviewPanel(
-            'aiGitHelperChat', 
-            'AI Git Helper',   
-            vscode.ViewColumn.One, 
-            {
-                enableScripts: true 
-            }
-        );
-        panel.webview.html = getWebviewContent();
-    });
+    // 1. Vytvoření instance našeho providera
+    const provider = new SidebarProvider(context.extensionUri);
 
-    context.subscriptions.push(disposable);
+    // 2. Registrace providera do VS Code (ID musí odpovídat tomu v package.json -> views)
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider('ai-git-helper.chatView', provider)
+    );
+
+    // 3. Volitelný příkaz pro manuální otevření (kdyby uživatel nechtěl klikat myší)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('ai-git-helper.openChat', () => {
+            vscode.commands.executeCommand('ai-git-helper.chatView.focus');
+        })
+    );
 }
 
 export function deactivate() {}
 
-function getWebviewContent() {
-    return `<!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>AI Git Helper</title>
-        <style>
-            /* Základní styly pro VS Code vzhled */
-            body {
-                font-family: var(--vscode-font-family);
-                padding: 10px;
-                background-color: var(--vscode-editor-background);
-                color: var(--vscode-editor-foreground);
-                display: flex;
-                flex-direction: column;
-                height: 95vh;
-            }
+// Třída, která se stará o obsah v Side Baru
+class SidebarProvider implements vscode.WebviewViewProvider {
+    _view?: vscode.WebviewView;
 
-            /* Oblast pro historii chatu */
-            #chat-history {
-                flex: 1;
-                overflow-y: auto;
-                margin-bottom: 20px;
-                border: 1px solid var(--vscode-widget-border);
-                padding: 10px;
-                border-radius: 5px;
-            }
+    constructor(private readonly _extensionUri: vscode.Uri) {}
 
-            /* Jednotlivé zprávy */
-            .message {
-                margin-bottom: 10px;
-                padding: 8px;
-                border-radius: 5px;
-            }
-            .user-message {
-                background-color: var(--vscode-button-background);
-                color: var(--vscode-button-foreground);
-                align-self: flex-end;
-                text-align: right;
-            }
-            .ai-message {
-                background-color: var(--vscode-editor-inactiveSelectionBackground);
-                align-self: flex-start;
-            }
+    public resolveWebviewView(
+        webviewView: vscode.WebviewView,
+        context: vscode.WebviewViewResolveContext,
+        _token: vscode.CancellationToken,
+    ) {
+        this._view = webviewView;
 
-            /* Vstupní oblast (input + tlačítko) */
-            .input-area {
-                display: flex;
-                gap: 10px;
-            }
-            
-            textarea {
-                flex: 1;
-                background-color: var(--vscode-input-background);
-                color: var(--vscode-input-foreground);
-                border: 1px solid var(--vscode-input-border);
-                padding: 5px;
-                resize: none;
-                height: 40px;
-                font-family: inherit;
-            }
+        // Povolení skriptů v HTML
+        webviewView.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [this._extensionUri]
+        };
 
-            button {
-                background-color: var(--vscode-button-background);
-                color: var(--vscode-button-foreground);
-                border: none;
-                padding: 0 15px;
-                cursor: pointer;
-            }
-            button:hover {
-                background-color: var(--vscode-button-hoverBackground);
-            }
-        </style>
-    </head>
-    <body>
-        <h2>🤖 AI Git Helper</h2>
-        
-        <div id="chat-history">
-            <div class="message ai-message">Ahoj! Jsem tvůj Git asistent. S čím ti dnes mohu pomoci?</div>
-        </div>
+        // Nastavení HTML obsahu
+        webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+    }
 
-        <div class="input-area">
-            <textarea id="chat-input" placeholder="Zeptej se na git příkaz..."></textarea>
-            <button id="send-btn">Odeslat</button>
-        </div>
-
-        <script>
-            // Získání přístupu k VS Code API uvnitř webview
-            const vscode = acquireVsCodeApi();
-
-            const sendBtn = document.getElementById('send-btn');
-            const chatInput = document.getElementById('chat-input');
-            const chatHistory = document.getElementById('chat-history');
-
-            // Funkce pro přidání zprávy do chatu
-            function addMessage(text, type) {
-                const div = document.createElement('div');
-                div.className = 'message ' + type;
-                div.textContent = text;
-                chatHistory.appendChild(div);
-                chatHistory.scrollTop = chatHistory.scrollHeight; // Auto-scroll dolů
-            }
-
-            // Kliknutí na tlačítko Odeslat
-            sendBtn.addEventListener('click', () => {
-                const text = chatInput.value;
-                if (text) {
-                    // 1. Zobrazit zprávu uživatele
-                    addMessage(text, 'user-message');
-                    
-                    // 2. Vyčistit input
-                    chatInput.value = '';
-
-                    // 3. Simulace odpovědi (ZATÍM JEN DISPLEJ, POZDĚJI AI)
-                    setTimeout(() => {
-                        addMessage('Zatím nejsem napojený na AI, ale slyším tě: ' + text, 'ai-message');
-                    }, 500);
+    private _getHtmlForWebview(webview: vscode.Webview) {
+        return `<!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>AI Git Helper</title>
+            <style>
+                body {
+                    font-family: var(--vscode-font-family);
+                    padding: 0;
+                    margin: 0;
+                    background-color: var(--vscode-sideBar-background); /* Barva pozadí sidebaru */
+                    color: var(--vscode-sideBar-foreground);
+                    display: flex;
+                    flex-direction: column;
+                    height: 100vh;
                 }
-            });
 
-            // Odeslání pomocí Enteru (bez Shiftu)
-            chatInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    sendBtn.click();
+                #chat-history {
+                    flex: 1;
+                    overflow-y: auto;
+                    padding: 10px;
                 }
-            });
-        </script>
-    </body>
-    </html>`;
+
+                .message {
+                    margin-bottom: 12px;
+                    padding: 8px 12px;
+                    border-radius: 6px;
+                    font-size: 13px;
+                    line-height: 1.4;
+                    max-width: 90%;
+                }
+                
+                .user-message {
+                    background-color: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    align-self: flex-end;
+                    margin-left: auto; /* Zarovnání doprava */
+                }
+                
+                .ai-message {
+                    background-color: var(--vscode-editor-inactiveSelectionBackground);
+                    align-self: flex-start;
+                    margin-right: auto; /* Zarovnání doleva */
+                    border: 1px solid var(--vscode-widget-border);
+                }
+
+                .input-area {
+                    padding: 10px;
+                    border-top: 1px solid var(--vscode-widget-border);
+                    background-color: var(--vscode-sideBar-background);
+                    display: flex;
+                    flex-direction: column; 
+                    gap: 8px;
+                }
+
+                textarea {
+                    background-color: var(--vscode-input-background);
+                    color: var(--vscode-input-foreground);
+                    border: 1px solid var(--vscode-input-border);
+                    padding: 8px;
+                    resize: vertical;
+                    min-height: 60px;
+                    border-radius: 4px;
+                    font-family: inherit;
+                }
+                
+                textarea:focus {
+                    outline: 1px solid var(--vscode-focusBorder);
+                }
+
+                button {
+                    background-color: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    border: none;
+                    padding: 8px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-weight: bold;
+                }
+                
+                button:hover {
+                    background-color: var(--vscode-button-hoverBackground);
+                }
+            </style>
+        </head>
+        <body>
+            <div id="chat-history">
+                <div class="message ai-message">👋 Hi! I'm your Git AI Agent. Ask me anything or use the buttons below.</div>
+            </div>
+
+            <div class="input-area">
+                <textarea id="chat-input" placeholder="Ask e.g.: How to undo last commit?"></textarea>
+                <button id="send-btn">Send</button>
+            </div>
+
+            <script>
+                const vscode = acquireVsCodeApi();
+                const sendBtn = document.getElementById('send-btn');
+                const chatInput = document.getElementById('chat-input');
+                const chatHistory = document.getElementById('chat-history');
+
+                function addMessage(text, type) {
+                    const div = document.createElement('div');
+                    div.className = 'message ' + type;
+                    div.textContent = text;
+                    chatHistory.appendChild(div);
+                    chatHistory.scrollTop = chatHistory.scrollHeight;
+                }
+
+                sendBtn.addEventListener('click', () => {
+                    const text = chatInput.value;
+                    if (text) {
+                        addMessage(text, 'user-message');
+                        chatInput.value = '';
+                        
+                        // Simulace odpovědi
+                        setTimeout(() => {
+                            addMessage('Processing: ' + text, 'ai-message');
+                        }, 500);
+                    }
+                });
+
+                chatInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendBtn.click();
+                    }
+                });
+            </script>
+        </body>
+        </html>`;
+    }
 }
