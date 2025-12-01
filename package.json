@@ -9,7 +9,6 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
   "main": "./extension.js",
   "contributes": {
     "commands": [
@@ -17,7 +16,25 @@
         "command": "git-agent.askGittor",
         "title": "Ask Gittor"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "chatContainer",
+          "title": "Git Chat",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "chatContainer": [
+        {
+          "id": "chatView",
+          "name": "Chat",
+          "icon": "media/icon.svg"
+        }
+      ]
+    }
   },
   "scripts": {
     "lint": "eslint .",
