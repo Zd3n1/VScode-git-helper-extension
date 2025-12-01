@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Background circle with gradient -->
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="robotGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f093fb;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#f5576c;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Main circle background -->
+  <circle cx="64" cy="64" r="60" fill="url(#bgGrad)"/>
+  
+  <!-- Small Git branch icon in corner -->
+  <g transform="translate(12, 12) scale(0.6)">
+    <!-- Branch lines -->
+    <path d="M15 8 L15 40 M15 25 Q22 25 30 18" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.8"/>
+    <!-- Branch dots -->
+    <circle cx="15" cy="8" r="5" fill="#4ade80"/>
+    <circle cx="15" cy="40" r="5" fill="#60a5fa"/>
+    <circle cx="30" cy="18" r="5" fill="#fbbf24"/>
+  </g>
+  
+  <!-- Big cute robot face - centered -->
+  <g transform="translate(24, 35)">
+    <!-- Robot head -->
+    <rect x="0" y="0" width="80" height="70" rx="16" fill="url(#robotGrad)"/>
+    <!-- Antenna -->
+    <line x1="40" y1="0" x2="40" y2="-15" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="40" cy="-20" r="8" fill="#4ade80"/>
+    <!-- Eyes -->
+    <circle cx="25" cy="28" r="14" fill="#fff"/>
+    <circle cx="55" cy="28" r="14" fill="#fff"/>
+    <circle cx="25" cy="28" r="7" fill="#1e1e1e"/>
+    <circle cx="55" cy="28" r="7" fill="#1e1e1e"/>
+    <!-- Eye shine -->
+    <circle cx="28" cy="24" r="4" fill="#fff"/>
+    <circle cx="58" cy="24" r="4" fill="#fff"/>
+    <!-- Big smile -->
+    <path d="M20 50 Q40 65 60 50" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round"/>
+  </g>
+  
+  <!-- Sparkles -->
+  <g fill="#fbbf24">
+    <polygon points="108,25 111,33 119,36 111,39 108,47 105,39 97,36 105,33" />
+    <polygon points="18,90 20,95 25,97 20,99 18,104 16,99 11,97 16,95" />
+  </g>
+</svg>

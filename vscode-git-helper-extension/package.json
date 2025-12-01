@@ -1,0 +1,77 @@
+{
+  "name": "git-helper-ai",
+  "displayName": "Git Helper AI",
+  "description": "AI assistant for Git operations - helps beginners learn and use Git through natural language",
+  "version": "1.0.0",
+  "publisher": "zd3n1",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other",
+    "SCM Providers"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "git-helper-sidebar",
+          "title": "Git Helper AI",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "git-helper-sidebar": [
+        {
+          "type": "webview",
+          "id": "git-helper-chat",
+          "name": "Git Helper Chat",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "git-helper.openChat",
+        "title": "Open Git Helper"
+      }
+    ],
+    "configuration": {
+      "title": "Git Helper Chat",
+      "properties": {
+        "gitHelper.llmEndpoint": {
+          "type": "string",
+          "default": "http://localhost:1234/v1/chat/completions",
+          "description": "LM Studio API endpoint (use /v1/chat/completions for better conversation support)"
+        },
+        "gitHelper.model": {
+          "type": "string",
+          "default": "openai/gpt-oss-20b",
+          "description": "Model name to use"
+        },
+        "gitHelper.maxTokens": {
+          "type": "number",
+          "default": 2000,
+          "description": "Maximum tokens for LLM response"
+        },
+        "gitHelper.temperature": {
+          "type": "number",
+          "default": 0.7,
+          "description": "Temperature for LLM response"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "echo 'Ready to publish'",
+    "lint": "eslint src --ext js"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0"
+  }
+}
