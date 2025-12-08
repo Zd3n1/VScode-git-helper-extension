@@ -4,6 +4,7 @@
 const vscode = require('vscode');
 const path = require('path');
 const dotenv = require('dotenv');
+const HTML_CONTENT = require('./htmlContent')
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -89,7 +90,16 @@ class GitAgentViewProvider {
             if (data.type === 'userRequest') {
                 this._handleUserRequestWithAI(data.value);
             }
+            if (data.type === 'changeModel') {
+                this._changeModel(data.value)
+            }
         });
+    }
+
+    _changeModel(newModelName){
+        const genAI = new GoogleGenerativeAI(API_KEY);
+        this._model = genAI.getGenerativeModel({ model: newModelName });
+        console.log(`Model switched to: ${newModelName}`);
     }
 
     async _handleUserRequestWithAI(userText) {
@@ -150,69 +160,7 @@ class GitAgentViewProvider {
     }
 
     _getHtmlContent() {
-        return `
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <style>
-                    body { font-family: sans-serif; padding: 10px; color: var(--vscode-editor-foreground); }
-                    .chat-box { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
-                    .msg { padding: 8px; border-radius: 5px; font-size: 13px; }
-                    .msg.user { background: #007acc; color: white; align-self: flex-end; }
-                    .msg.agent { background: #3c3c3c; align-self: flex-start; border-left: 3px solid #007acc; }
-                    .msg.git { background: #222; font-family: monospace; white-space: pre-wrap; border: 1px solid #444; }
-                    .msg.error { background: #5a1e1e; color: #ffcccc; }
-                    
-                    textarea { width: 100%; height: 50px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); margin-bottom: 5px; box-sizing: border-box; }
-                    button { width: 100%; padding: 8px; background: var(--vscode-button-background); color: white; border: none; cursor: pointer; }
-                    button:hover { background: var(--vscode-button-hoverBackground); }
-                </style>
-            </head>
-            <body>
-                <h3>🤖 Git Helper</h3>
-                <div class="chat-box" id="chat-log"></div>
-                
-                <textarea id="prompt" placeholder="Hello, I'm here to help you with the git 🚀 Ask me a question or tell me what to do."></textarea>
-                <button id="sendBtn">Odeslat</button>
-
-                <script>
-                    const vscode = acquireVsCodeApi();
-                    const log = document.getElementById('chat-log');
-                    const input = document.getElementById('prompt');
-                    const btn = document.getElementById('sendBtn');
-
-            
-                    btn.addEventListener('click', () => {
-                        const text = input.value;
-                        if(text) {
-                            addMessage('You', text, 'user');
-                            vscode.postMessage({ type: 'userRequest', value: text });
-                            input.value = '';
-                        }
-                    });
-
-            
-                    window.addEventListener('message', event => {
-                        const message = event.data;
-                        if (message.type === 'addResponse') {
-                            let style = 'agent';
-                            if (message.sender === 'Git') style = 'git';
-                            if (message.sender === 'Error') style = 'error';
-                            addMessage(message.sender, message.text, style);
-                        }
-                    });
-
-                    function addMessage(sender, text, type) {
-                        const div = document.createElement('div');
-                        div.className = 'msg ' + type;
-                        div.innerText = (type === 'git' ? '' : sender + ': ') + text;
-                        log.appendChild(div);
-                        window.scrollTo(0, document.body.scrollHeight);
-                    }
-                </script>
-            </body>
-            </html>
-        `;
+        return HTML_CONTENT;
     }
 }
 
