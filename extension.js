@@ -5,6 +5,10 @@ const vscode = require('vscode');
 const path = require('path');
 const dotenv = require('dotenv');
 const HTML_CONTENT = require('./htmlContent')
+const cp = require('child_process');
+const fs = require('fs');
+const util = require('util');
+const exec = util.promisify(cp.exec);
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -74,19 +78,22 @@ if (!API_KEY) {
 }
 
 class GitAgentViewProvider {
-    constructor(extensionUri) {
+    constructor(extensionUri, isGit) {
         this._extensionUri = extensionUri;
         const genAI = new GoogleGenerativeAI(API_KEY);
         this._model = genAI.getGenerativeModel({ model: `${MODEL_NAME}` });
-        
+        this._isGit = isGit
     }
 
-    resolveWebviewView(webviewView) {
+    async resolveWebviewView(webviewView) {
       this._view = webviewView;
         webviewView.webview.options = { enableScripts: true };
         webviewView.webview.html = this._getHtmlContent();
 
-        webviewView.webview.onDidReceiveMessage(data => {
+        webviewView.webview.onDidReceiveMessage(async data => {
+            if (data.type === 'webviewLoaded'){
+                await this._checkWorkspace()
+            }
             if (data.type === 'userRequest') {
                 this._handleUserRequestWithAI(data.value);
             }
@@ -100,6 +107,39 @@ class GitAgentViewProvider {
         const genAI = new GoogleGenerativeAI(API_KEY);
         this._model = genAI.getGenerativeModel({ model: newModelName });
         console.log(`Model switched to: ${newModelName}`);
+    }
+
+    async _checkWorkspace(){
+         if (!vscode.workspace.workspaceFolders) {
+            this._addMessageToChat('System', "⚠️ You don't have open any folder");
+            this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-pull', 'btn-fetch', 'btn-checkout']);
+        } else {
+            const isGit = await this._isGitRepository()
+            if(!isGit){
+                this._addMessageToChat('System', "Current folder is not a Git repository.");
+                this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-pull', 'btn-fetch', 'btn-checkout']);
+            }
+        }
+    }
+
+    async _isGitRepository(){
+        const folderPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        try {
+            const { stdout } = await exec('git rev-parse --is-inside-work-tree', { cwd: folderPath });
+            return stdout.trim() === 'true';
+        } catch (e){
+            return false
+        }
+    }
+    
+
+    _disableButtons(idsArray){
+        if (this._view) {
+            this._view.webview.postMessage({ 
+                type: 'setButtonsState', 
+                disable: idsArray 
+            });
+        }
     }
 
     async _handleUserRequestWithAI(userText) {
@@ -150,6 +190,9 @@ class GitAgentViewProvider {
         //         this._addMessageToChat('Git', stdout || 'Done');
         //     }
         // });
+        if(command.includes('git clone')){
+            this._disableButtons([])
+        }
         this._addMessageToChat('Agent', `Done`);
     }
 

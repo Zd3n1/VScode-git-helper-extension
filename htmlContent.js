@@ -74,6 +74,12 @@ module.exports = `
             transition: background 0.2s;
         }
         .btn-quick:hover { background: var(--vscode-button-secondaryHoverBackground); }
+        .btn-quick:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background: var(--vscode-editor-inactiveSelectionBackground);
+            color: var(--vscode-disabledForeground);
+        }
 
         .chat-box { 
             flex: 1; 
@@ -203,12 +209,12 @@ module.exports = `
 
         <p>Quick actions: </p>
         <div class="quick-buttons">
-            <button class="btn-quick" onclick="runGit('status')">Git Status</button>
-            <button class="btn-quick" onclick="runGit('generateCommit')">Commit</button>
-            <button class="btn-quick" onclick="runGit('pushCommit')">Push</button>
-            <button class="btn-quick" onclick="runGit('pull')">Pull</button>
-            <button class="btn-quick" onclick="runGit('fetch')">Fetch</button>
-            <button class="btn-quick" onclick="runGit('checkout')">Checkout branch</button>
+            <button id="btn-status" class="btn-quick" onclick="runGit('status')">Git Status</button>
+            <button id="btn-commit" class="btn-quick" onclick="runGit('generateCommit')">Commit</button>
+            <button id="btn-push" class="btn-quick" onclick="runGit('pushCommit')">Push</button>
+            <button id="btn-pull" class="btn-quick" onclick="runGit('pull')">Pull</button>
+            <button id="btn-fetch" class="btn-quick" onclick="runGit('fetch')">Fetch</button>
+            <button id="btn-checkout" class="btn-quick" onclick="runGit('checkout')">Checkout branch</button>
         </div>
     </div>
 
@@ -228,6 +234,8 @@ module.exports = `
         const input = document.getElementById('prompt');
         const btn = document.getElementById('sendBtn');
         const modelSelect = document.getElementById('modelSelect');
+
+        vscode.postMessage({ type: 'webviewLoaded' });
 
         modelSelect.addEventListener('change', () => {
             const selectedModel = modelSelect.value;
@@ -294,6 +302,16 @@ module.exports = `
                 if (message.sender === 'Git') style = 'git';
                 if (message.sender === 'Error') style = 'error';
                 addMessage(message.sender, message.text, style);
+            }
+            if (message.type === 'setButtonsState'){
+                const buttonsToDisable = message.disable;
+                document.querySelectorAll('.btn-quick').forEach(b => b.disabled = false)
+                if (buttonsToDisable && Array.isArray(buttonsToDisable)) {
+                    buttonsToDisable.forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.disabled = true;
+                    });
+                }
             }
         });
 
