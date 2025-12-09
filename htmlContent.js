@@ -193,6 +193,10 @@ module.exports = `
             margin-bottom: 2px;
         }
         #sendBtn:hover { background: var(--vscode-button-hoverBackground); }
+        #sendBtn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
 
     </style>
 </head>
@@ -306,6 +310,7 @@ module.exports = `
             if (message.type === 'setButtonsState'){
                 const buttonsToDisable = message.disable;
                 document.querySelectorAll('.btn-quick').forEach(b => b.disabled = false)
+                document.querySelector('#sendBtn').disabled = false
                 if (buttonsToDisable && Array.isArray(buttonsToDisable)) {
                     buttonsToDisable.forEach(id => {
                         const el = document.getElementById(id);

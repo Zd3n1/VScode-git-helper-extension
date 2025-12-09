@@ -8,6 +8,7 @@ const HTML_CONTENT = require('./htmlContent')
 const cp = require('child_process');
 const fs = require('fs');
 const util = require('util');
+const {generatePrompt} = require('./utils/generatePrompt')
 const exec = util.promisify(cp.exec);
 
 // This method is called when your extension is activated
@@ -51,30 +52,34 @@ if (!API_KEY) {
     fetch(url)
         .then(response => response.json())
         .then(data => {
-            console.log("--------------------------------------------------");
-            console.log("List of models:");
-            console.log("--------------------------------------------------");
-            
-            if (data.error) {
-                console.error("Error API:", data.error.message);
-            } else if (data.models) {
-            
-                data.models.forEach(model => {
-                    console.log(`✅ ${model.name}`);
-                });
-                
-        
-                const hasFlash = data.models.some(m => m.name.includes(MODEL_NAME));
-                console.log("--------------------------------------------------");
-                if (!hasFlash) {
-                    console.log(`Model ${MODEL_NAME} is not included.`);
-                } 
-            }
-            console.log("--------------------------------------------------");
+            _logInitialInformation(data)
         })
         .catch(err => {
             console.error("Connection error:", err);
         });
+}
+
+function _logInitialInformation(data){
+    console.log("--------------------------------------------------");
+    console.log("List of models:");
+    console.log("--------------------------------------------------");
+    
+    if (data.error) {
+        console.error("Error API:", data.error.message);
+    } else if (data.models) {
+    
+        data.models.forEach(model => {
+            console.log(`✅ ${model.name}`);
+        });
+        
+
+        const hasFlash = data.models.some(m => m.name.includes(MODEL_NAME));
+        console.log("--------------------------------------------------");
+        if (!hasFlash) {
+            console.log(`Model ${MODEL_NAME} is not included.`);
+        } 
+    }
+    console.log("--------------------------------------------------");
 }
 
 class GitAgentViewProvider {
@@ -137,44 +142,40 @@ class GitAgentViewProvider {
         if (this._view) {
             this._view.webview.postMessage({ 
                 type: 'setButtonsState', 
-                disable: idsArray 
+                disable: idsArray.includes('all') ? [
+                    'btn-status', 'btn-commit', 'btn-push', 'btn-pull', 'btn-fetch', 'btn-checkout', 'sendBtn'
+                ] : idsArray 
             });
         }
     }
 
     async _handleUserRequestWithAI(userText) {
         try {
+            this._disableButtons(['all'])
             this._addMessageToChat('Agent', '🤔 Thinking...');
 
-            const prompt = `
-                You are a helper that translates human language into GIT commands.
-                User says: "${userText}"
-                
-                Rules:
-                1. Reply ONLY with the git command (e.g., "git status").
-                2. Do not use markdown formatting (no backticks).
-                3. If the request is dangerous (delete history etc.), reply with "SAFEGUARD_ERROR".
-                4. If it is not related to git, reply with "UNKNOWN_COMMAND".
-            `;
+            const prompt = generatePrompt(userText);
 
-            const result = await this._model.generateContent(prompt);
-            const command = result.response.text().trim();
+            const response = await this._model.generateContent(prompt);
+            const result = response.response.text().trim();
+            const resultObject = JSON.parse(result)
+            /* result object has 3 attributes: message, command, isDangerous */
 
-            if (command === 'UNKNOWN_COMMAND') {
-                this._addMessageToChat('Agent', "This isn't seem like task related to Git. Try it again.");
-            } else if (command === 'SAFEGUARD_ERROR') {
-                this._addMessageToChat('Agent', "This command seems dangerous, I'd rather not execute it.");
-            } else {
-                //command is valid
-                this._executeGitCommand(command);
+            if (resultObject.message){
+                this._addMessageToChat('Agent', resultObject.message)
+                if(resultObject.command){
+                    this._executeGitCommand(resultObject.command, resultObject.isDangerous)
+                }
             }
 
         } catch (error) {
             this._addMessageToChat('Error', `Chyba AI: ${error.message}`);
+        } finally {
+            this._disableButtons([])
         }
     }
 
-    _executeGitCommand(command) {
+    _executeGitCommand(command, isDangerous) {
         if (!vscode.workspace.workspaceFolders) {
             this._addMessageToChat('System', "⚠️ You don't have open any folder!");
             return;
