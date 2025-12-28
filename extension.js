@@ -4,6 +4,12 @@
 const vscode = require('vscode');
 const path = require('path');
 const dotenv = require('dotenv');
+const HTML_CONTENT = require('./htmlContent')
+const cp = require('child_process');
+const fs = require('fs');
+const util = require('util');
+const {generatePrompt} = require('./utils/generatePrompt')
+const exec = util.promisify(cp.exec);
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -46,85 +52,130 @@ if (!API_KEY) {
     fetch(url)
         .then(response => response.json())
         .then(data => {
-            console.log("--------------------------------------------------");
-            console.log("List of models:");
-            console.log("--------------------------------------------------");
-            
-            if (data.error) {
-                console.error("Error API:", data.error.message);
-            } else if (data.models) {
-            
-                data.models.forEach(model => {
-                    console.log(`✅ ${model.name}`);
-                });
-                
-        
-                const hasFlash = data.models.some(m => m.name.includes(MODEL_NAME));
-                console.log("--------------------------------------------------");
-                if (!hasFlash) {
-                    console.log(`Model ${MODEL_NAME} is not included.`);
-                } 
-            }
-            console.log("--------------------------------------------------");
+            _logInitialInformation(data)
         })
         .catch(err => {
             console.error("Connection error:", err);
         });
 }
 
+function _logInitialInformation(data){
+    console.log("--------------------------------------------------");
+    console.log("List of models:");
+    console.log("--------------------------------------------------");
+    
+    if (data.error) {
+        console.error("Error API:", data.error.message);
+    } else if (data.models) {
+    
+        data.models.forEach(model => {
+            console.log(`✅ ${model.name}`);
+        });
+        
+
+        const hasFlash = data.models.some(m => m.name.includes(MODEL_NAME));
+        console.log("--------------------------------------------------");
+        if (!hasFlash) {
+            console.log(`Model ${MODEL_NAME} is not included.`);
+        } 
+    }
+    console.log("--------------------------------------------------");
+}
+
 class GitAgentViewProvider {
-    constructor(extensionUri) {
+    constructor(extensionUri, isGit) {
         this._extensionUri = extensionUri;
         const genAI = new GoogleGenerativeAI(API_KEY);
         this._model = genAI.getGenerativeModel({ model: `${MODEL_NAME}` });
-        
+        this._isGit = isGit
     }
 
-    resolveWebviewView(webviewView) {
+    async resolveWebviewView(webviewView) {
       this._view = webviewView;
         webviewView.webview.options = { enableScripts: true };
         webviewView.webview.html = this._getHtmlContent();
 
-        webviewView.webview.onDidReceiveMessage(data => {
+        webviewView.webview.onDidReceiveMessage(async data => {
+            if (data.type === 'webviewLoaded'){
+                await this._checkWorkspace()
+            }
             if (data.type === 'userRequest') {
                 this._handleUserRequestWithAI(data.value);
+            }
+            if (data.type === 'changeModel') {
+                this._changeModel(data.value)
             }
         });
     }
 
+    _changeModel(newModelName){
+        const genAI = new GoogleGenerativeAI(API_KEY);
+        this._model = genAI.getGenerativeModel({ model: newModelName });
+        console.log(`Model switched to: ${newModelName}`);
+    }
+
+    async _checkWorkspace(){
+         if (!vscode.workspace.workspaceFolders) {
+            this._addMessageToChat('System', "⚠️ You don't have open any folder");
+            this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-pull', 'btn-fetch', 'btn-checkout']);
+        } else {
+            const isGit = await this._isGitRepository()
+            if(!isGit){
+                this._addMessageToChat('System', "Current folder is not a Git repository.");
+                this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-pull', 'btn-fetch', 'btn-checkout']);
+            }
+        }
+    }
+
+    async _isGitRepository(){
+        const folderPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        try {
+            const { stdout } = await exec('git rev-parse --is-inside-work-tree', { cwd: folderPath });
+            return stdout.trim() === 'true';
+        } catch (e){
+            return false
+        }
+    }
+    
+
+    _disableButtons(idsArray){
+        if (this._view) {
+            this._view.webview.postMessage({ 
+                type: 'setButtonsState', 
+                disable: idsArray.includes('all') ? [
+                    'btn-status', 'btn-commit', 'btn-push', 'btn-pull', 'btn-fetch', 'btn-checkout', 'sendBtn'
+                ] : idsArray 
+            });
+        }
+    }
+
     async _handleUserRequestWithAI(userText) {
         try {
+            this._disableButtons(['all'])
             this._addMessageToChat('Agent', '🤔 Thinking...');
 
-            const prompt = `
-                You are a helper that translates human language into GIT commands.
-                User says: "${userText}"
-                
-                Rules:
-                1. Reply ONLY with the git command (e.g., "git status").
-                2. Do not use markdown formatting (no backticks).
-                3. If the request is dangerous (delete history etc.), reply with "SAFEGUARD_ERROR".
-                4. If it is not related to git, reply with "UNKNOWN_COMMAND".
-            `;
+            const prompt = generatePrompt(userText);
 
-            const result = await this._model.generateContent(prompt);
-            const command = result.response.text().trim();
+            const response = await this._model.generateContent(prompt);
+            const result = response.response.text().trim();
+            const resultObject = JSON.parse(result)
+            /* result object has 3 attributes: message, command, isDangerous */
 
-            if (command === 'UNKNOWN_COMMAND') {
-                this._addMessageToChat('Agent', "This isn't seem like task related to Git. Try it again.");
-            } else if (command === 'SAFEGUARD_ERROR') {
-                this._addMessageToChat('Agent', "This command seems dangerous, I'd rather not execute it.");
-            } else {
-                //command is valid
-                this._executeGitCommand(command);
+            if (resultObject.message){
+                this._addMessageToChat('Agent', resultObject.message)
+                if(resultObject.command){
+                    this._executeGitCommand(resultObject.command, resultObject.isDangerous)
+                }
             }
 
         } catch (error) {
             this._addMessageToChat('Error', `Chyba AI: ${error.message}`);
+        } finally {
+            this._disableButtons([])
         }
     }
 
-    _executeGitCommand(command) {
+    _executeGitCommand(command, isDangerous) {
         if (!vscode.workspace.workspaceFolders) {
             this._addMessageToChat('System', "⚠️ You don't have open any folder!");
             return;
@@ -140,6 +191,9 @@ class GitAgentViewProvider {
         //         this._addMessageToChat('Git', stdout || 'Done');
         //     }
         // });
+        if(command.includes('git clone')){
+            this._disableButtons([])
+        }
         this._addMessageToChat('Agent', `Done`);
     }
 
@@ -150,69 +204,7 @@ class GitAgentViewProvider {
     }
 
     _getHtmlContent() {
-        return `
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <style>
-                    body { font-family: sans-serif; padding: 10px; color: var(--vscode-editor-foreground); }
-                    .chat-box { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
-                    .msg { padding: 8px; border-radius: 5px; font-size: 13px; }
-                    .msg.user { background: #007acc; color: white; align-self: flex-end; }
-                    .msg.agent { background: #3c3c3c; align-self: flex-start; border-left: 3px solid #007acc; }
-                    .msg.git { background: #222; font-family: monospace; white-space: pre-wrap; border: 1px solid #444; }
-                    .msg.error { background: #5a1e1e; color: #ffcccc; }
-                    
-                    textarea { width: 100%; height: 50px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); margin-bottom: 5px; box-sizing: border-box; }
-                    button { width: 100%; padding: 8px; background: var(--vscode-button-background); color: white; border: none; cursor: pointer; }
-                    button:hover { background: var(--vscode-button-hoverBackground); }
-                </style>
-            </head>
-            <body>
-                <h3>🤖 Git Helper</h3>
-                <div class="chat-box" id="chat-log"></div>
-                
-                <textarea id="prompt" placeholder="Hello, I'm here to help you with the git 🚀 Ask me a question or tell me what to do."></textarea>
-                <button id="sendBtn">Odeslat</button>
-
-                <script>
-                    const vscode = acquireVsCodeApi();
-                    const log = document.getElementById('chat-log');
-                    const input = document.getElementById('prompt');
-                    const btn = document.getElementById('sendBtn');
-
-            
-                    btn.addEventListener('click', () => {
-                        const text = input.value;
-                        if(text) {
-                            addMessage('You', text, 'user');
-                            vscode.postMessage({ type: 'userRequest', value: text });
-                            input.value = '';
-                        }
-                    });
-
-            
-                    window.addEventListener('message', event => {
-                        const message = event.data;
-                        if (message.type === 'addResponse') {
-                            let style = 'agent';
-                            if (message.sender === 'Git') style = 'git';
-                            if (message.sender === 'Error') style = 'error';
-                            addMessage(message.sender, message.text, style);
-                        }
-                    });
-
-                    function addMessage(sender, text, type) {
-                        const div = document.createElement('div');
-                        div.className = 'msg ' + type;
-                        div.innerText = (type === 'git' ? '' : sender + ': ') + text;
-                        log.appendChild(div);
-                        window.scrollTo(0, document.body.scrollHeight);
-                    }
-                </script>
-            </body>
-            </html>
-        `;
+        return HTML_CONTENT;
     }
 }
 
