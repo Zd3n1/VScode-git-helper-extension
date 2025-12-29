@@ -274,29 +274,37 @@ module.exports = `
             }
         }
 
-        window.runGit = (command) => {
+        window.runGit = (action) => {
                 let userText = "";
-            if (command === 'status') {
+                let command = "";
+                
+            if (action === 'status') {
                 userText = "Show me git status";
+                command = action; 
             } 
-            else if (command === 'generateCommit') {
+            else if (action === 'generateCommit') {
                 userText = "Generate commit message based on changes";
+                command = action; 
             }
-            else if (command === 'pushCommit') {
+            else if (action === 'pushCommit') {
                 userText = "Push commits to the remote repository";
+                command = action; 
             } 
-            else if (command === 'pull') {
+            else if (action === 'pull') {
                 userText = "Pull changes from the remote repository";
+                command = action; 
             } 
-            else if (command === 'fetch') {
+            else if (action === 'fetch') {
                 userText = "Fetch latest info from remote (git fetch)";
+                command = action; 
             } 
-            else if (command === 'checkout') {
+            else if (action === 'checkout') {
                 userText = "I want to switch to another branch"; 
+                command = action; 
             }
                 
                 addMessage('You', userText, 'user');
-                vscode.postMessage({ type: 'userRequest', value: userText });
+                vscode.postMessage({ type: 'quickButton', value: userText, command: command });
         }
 
         window.addEventListener('message', event => {

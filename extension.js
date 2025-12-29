@@ -99,8 +99,11 @@ class GitAgentViewProvider {
             if (data.type === 'webviewLoaded'){
                 await this._checkWorkspace()
             }
-            if (data.type === 'userRequest') {
+            if (data.type === 'userRequest'){ 
                 this._handleUserRequestWithAI(data.value);
+            }
+            if (data.type === 'quickButton') {
+                this._handleQuickButton(data.command)
             }
             if (data.type === 'changeModel') {
                 this._changeModel(data.value)
@@ -175,7 +178,29 @@ class GitAgentViewProvider {
         }
     }
 
-    _executeGitCommand(command, isDangerous) {
+    async _handleQuickButton(command) {
+    this._disableButtons(['all']); 
+    
+    let gitCommand = "";
+    let isDangerous = false;
+
+    if (command === 'status') gitCommand = 'git status';
+    // if (command === 'pushCommit') gitCommand = 'git push';
+    // if (command === 'pull') gitCommand = 'git pull';
+    // if (command === 'fetch') gitCommand = 'git fetch';
+
+    if (!gitCommand) {
+        this._addMessageToChat('Error', `Příkaz pro akci "${command}" není definován.`);
+        this._disableButtons([]);
+        return;
+    }
+
+    await this._executeGitCommand(gitCommand, isDangerous);
+
+    this._disableButtons([]);
+}
+
+    async _executeGitCommand(command, isDangerous) {
         if (!vscode.workspace.workspaceFolders) {
             this._addMessageToChat('System', "⚠️ You don't have open any folder!");
             return;
@@ -184,17 +209,18 @@ class GitAgentViewProvider {
 
         this._addMessageToChat('Agent', `🚀 Running: ${command}`);
 
-        // cp.exec(command, { cwd: rootPath }, (err, stdout, stderr) => {
-        //     if (err) {
-        //         this._addMessageToChat('Error', `Git Error: ${stderr || err.message}`);
-        //     } else {
-        //         this._addMessageToChat('Git', stdout || 'Done');
-        //     }
-        // });
-        if(command.includes('git clone')){
-            this._disableButtons([])
+        try {
+            const { stdout, stderr } = await exec(command, { cwd: rootPath });
+
+            if (stdout) {
+                this._addMessageToChat('Git', stdout);
+            }
+            if (stderr) {
+                this._addMessageToChat('Git', stderr);
+            }
+        } catch (err) {
+            this._addMessageToChat('Error', `Git Error: ${err.message}`);
         }
-        this._addMessageToChat('Agent', `Done`);
     }
 
     _addMessageToChat(sender, text) {
