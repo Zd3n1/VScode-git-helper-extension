@@ -117,12 +117,12 @@ class GitAgentViewProvider {
     async _checkWorkspace(){
          if (!vscode.workspace.workspaceFolders) {
             this._addMessageToChat('System', "⚠️ You don't have open any folder");
-            this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-pull', 'btn-fetch', 'btn-checkout']);
+            this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-checkout']);
         } else {
             const isGit = await this._isGitRepository()
             if(!isGit){
                 this._addMessageToChat('System', "Current folder is not a Git repository.");
-                this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-pull', 'btn-fetch', 'btn-checkout']);
+                this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-checkout']);
             }
         }
     }
@@ -143,7 +143,7 @@ class GitAgentViewProvider {
             this._view.webview.postMessage({ 
                 type: 'setButtonsState', 
                 disable: idsArray.includes('all') ? [
-                    'btn-status', 'btn-commit', 'btn-push', 'btn-pull', 'btn-fetch', 'btn-checkout', 'sendBtn'
+                    'btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-checkout', 'sendBtn'
                 ] : idsArray 
             });
         }
