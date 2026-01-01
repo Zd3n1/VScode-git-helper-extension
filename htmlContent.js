@@ -213,7 +213,8 @@ module.exports = `
 
         <p>Quick actions: </p>
         <div class="quick-buttons">
-            <button id="btn-status" class="btn-quick" onclick="runGit('status')">Git Status</button>
+            <button id="btn-status" class="btn-quick" onclick="runGit('status')">Status</button>
+            <button id="btn-history" class="btn-quick" onclick="runGit('history')">History</button>
             <button id="btn-commit" class="btn-quick" onclick="runGit('generateCommit')">Commit</button>
             <button id="btn-push" class="btn-quick" onclick="runGit('pushCommit')">Push</button>
             <button id="btn-pull" class="btn-quick" onclick="runGit('pull')">Pull</button>
@@ -275,9 +276,13 @@ module.exports = `
         }
 
         window.runGit = (command) => {
-                let userText = "";
+            let userText = "";
+            
             if (command === 'status') {
                 userText = "Show me git status";
+            } 
+            else if (command === 'history') {
+                userText = "Show me recent commit history in pretty format with authors and with short dates";
             } 
             else if (command === 'generateCommit') {
                 userText = "Generate commit message based on changes";
