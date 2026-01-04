@@ -190,7 +190,11 @@ class GitAgentViewProvider {
             this._disableButtons([]); 
             return;
         }
-        // if (command === 'pushCommit') gitCommand = 'git push';
+        if (command === 'pushCommit') {
+            await this._pushHandler();
+            this._disableButtons([]);
+            return;
+        }
         // if (command === 'pull') gitCommand = 'git pull';
         // if (command === 'fetch') gitCommand = 'git fetch';
 
@@ -238,7 +242,7 @@ class GitAgentViewProvider {
         return HTML_CONTENT;
     }
 
-    // QUICK BUTTONS HANDLER 
+    // QUICK BUTTONS HANDLERS 
     async _generateCommitHandler() {
         if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
             this._addMessageToChat('Agent', "⚠️ No workspace folder open. Please open a project to use Git features.");
@@ -304,6 +308,52 @@ class GitAgentViewProvider {
                 this._addMessageToChat('Error', "Git identity not set. Run 'git config user.email' and 'git config user.name' first.");
             } else {
                 this._addMessageToChat('Error', `Commit failed: ${error.message}`);
+            }
+        }
+    }
+
+    async _pushHandler() {
+        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+            this._addMessageToChat('Agent', "⚠️ No workspace folder open. Please open a project first.");
+            return;
+        }
+
+        const rootPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+
+        try {
+            const isGit = await this._isGitRepository();
+            if (!isGit) {
+                this._addMessageToChat('Agent', "⚠️ This folder is not a Git repository.");
+                return;
+            }
+
+            const { stdout: statusOutput } = await exec('git status -sb', { cwd: rootPath });
+
+            if (!statusOutput.includes('ahead')) {
+                this._addMessageToChat('Agent', "ℹ️ Your branch is up to date with remote. There are no local commits to push.");
+                return;
+            }
+
+            this._addMessageToChat('Agent', "🚀 Pushing commits to remote repository...");
+            
+            const { stdout, stderr } = await exec('git push', { cwd: rootPath });
+
+            this._addMessageToChat('Agent', "✅ Successfully pushed to remote.");
+            
+            if (stdout) {
+                this._addMessageToChat('Git', stdout);
+            }
+            if (stderr && !stderr.includes('To ')) {
+                this._addMessageToChat('Git', stderr);
+            }
+
+        } catch (error) {
+            if (error.message.includes("no upstream branch")) {
+                this._addMessageToChat('Error', "Push failed: The current branch has no upstream branch. Set it using 'git push -u origin <branch_name>'.");
+            } else if (error.message.includes("rejected") || error.message.includes("non-fast-forward")) {
+                this._addMessageToChat('Error', "Push rejected: Remote contains work that you do not have locally. Try pulling first.");
+            } else {
+                this._addMessageToChat('Error', `Push failed: ${error.message}`);
             }
         }
     }
