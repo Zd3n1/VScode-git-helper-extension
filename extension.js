@@ -179,26 +179,31 @@ class GitAgentViewProvider {
     }
 
     async _handleQuickButton(command) {
-    this._disableButtons(['all']); 
-    
-    let gitCommand = "";
-    let isDangerous = false;
+        this._disableButtons(['all']); 
+        
+        let gitCommand = "";
+        let isDangerous = false;
 
-    if (command === 'status') gitCommand = 'git status';
-    // if (command === 'pushCommit') gitCommand = 'git push';
-    // if (command === 'pull') gitCommand = 'git pull';
-    // if (command === 'fetch') gitCommand = 'git fetch';
+        if (command === 'status') gitCommand = 'git status';
+        if (command === 'generateCommit') {
+            await this._generateCommitHandler();
+            this._disableButtons([]); 
+            return;
+        }
+        // if (command === 'pushCommit') gitCommand = 'git push';
+        // if (command === 'pull') gitCommand = 'git pull';
+        // if (command === 'fetch') gitCommand = 'git fetch';
 
-    if (!gitCommand) {
-        this._addMessageToChat('Error', `Příkaz pro akci "${command}" není definován.`);
+        if (!gitCommand) {
+            this._addMessageToChat('Error', `The command "${command}" is not defined.`);
+            this._disableButtons([]);
+            return;
+        }
+
+        await this._executeGitCommand(gitCommand, isDangerous);
+
         this._disableButtons([]);
-        return;
     }
-
-    await this._executeGitCommand(gitCommand, isDangerous);
-
-    this._disableButtons([]);
-}
 
     async _executeGitCommand(command, isDangerous) {
         if (!vscode.workspace.workspaceFolders) {
@@ -232,6 +237,57 @@ class GitAgentViewProvider {
     _getHtmlContent() {
         return HTML_CONTENT;
     }
+
+    // QUICK BUTTONS HANDLER 
+    async _generateCommitHandler() {
+        if (!vscode.workspace.workspaceFolders) {
+            this._addMessageToChat('Agent', "⚠️ No workspace folder open. Please open a project first.");
+            return;
+        }
+
+        const rootPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+
+        try {
+            const { stdout: statusOutput } = await exec('git status --porcelain', { cwd: rootPath });
+
+            if (!statusOutput.trim()) {
+                this._addMessageToChat('Agent', "Your working tree is clean. There is nothing to commit.");
+                return;
+            }
+
+            const lines = statusOutput.trim().split('\n');
+            const staged = lines.filter(line => line[0] !== ' ' && line[0] !== '?');
+            const unstaged = lines.filter(line => line[0] === ' ' || line[1] !== ' ');
+
+            if (staged.length === 0) {
+                this._addMessageToChat('Agent', "❌ No changes staged for commit. Please stage your changes first (git add).");
+                return;
+            }
+
+            if (unstaged.length > 0) {
+                this._addMessageToChat('Agent', `📝 Note: You have ${unstaged.length} unstaged changes that won't be included in this commit.`);
+            }
+
+            this._addMessageToChat('Agent', "🤖 Analyzing staged changes and generating message...");
+            const { stdout: diff } = await exec('git diff --cached', { cwd: rootPath });
+
+            const prompt = `Generate a professional and concise git commit message in English based on the following changes. Return ONLY the message, no extra talk:\n\n${diff}`;
+            const response = await this._model.generateContent(prompt);
+            const commitMsg = response.response.text().trim().replace(/^["']|["']$/g, ''); // Očista od případných uvozovek
+
+            const escapedMsg = commitMsg.replace(/"/g, '\\"');
+            await exec(`git commit -m "${escapedMsg}"`, { cwd: rootPath });
+
+            this._addMessageToChat('Agent', `✅ Successfully committed with message:`);
+            this._addMessageToChat('Git', commitMsg);
+
+        } catch (error) {
+            this._addMessageToChat('Error', `Commit process failed: ${error.message}`);
+        }
+    }
+
+
+
 }
 
 // This method is called when your extension is deactivated
