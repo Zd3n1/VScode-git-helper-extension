@@ -9,6 +9,7 @@ const cp = require('child_process');
 const fs = require('fs');
 const util = require('util');
 const {generatePrompt} = require('./utils/generatePrompt')
+const { generateCommitMessage } = require('./utils/prompts/generateCommitMessage');
 const exec = util.promisify(cp.exec);
 
 // This method is called when your extension is activated
@@ -303,9 +304,7 @@ class GitAgentViewProvider {
                 return;
             }
 
-            const prompt = `Generate a professional and concise git commit message in English based on the following changes. 
-            Follow conventional commits (e.g., feat:, fix:, chore:). 
-            Return ONLY the message text, no markdown, no quotes:\n\n${diff}`;
+            const prompt = generateCommitMessage(diff);
             
             const response = await this._model.generateContent(prompt);
             const commitMsg = response.response.text().trim().replace(/['"]/g, '');
