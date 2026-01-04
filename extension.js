@@ -110,7 +110,7 @@ class GitAgentViewProvider {
                     await this._pushHandler();
                 }
                 if (data.command === 'undo') {
-                    this._addMessageToChat('Agent', "Undo commit is not implemented yet.");
+                    await this._undoCommitHandler();
                 }
             }
             if (data.type === 'changeModel') {
@@ -284,8 +284,7 @@ class GitAgentViewProvider {
             const onlyUnstaged = lines.filter(line => (line[0] === ' ' || line[0] === '?') && line[1] !== ' ');
 
             if (staged.length === 0) {
-                this._addMessageToChat('Agent', `❌ No changes staged for commit.`);
-                this._addMessageToChat('Agent', `I see ${onlyUnstaged.length} unstaged file(s). Please use "git add" to stage them before committing.`);
+                this._addMessageToChat('Agent', `❌ No changes staged for commit. I see ${onlyUnstaged.length} unstaged file(s).`);
                 return;
             }
 
@@ -373,6 +372,42 @@ class GitAgentViewProvider {
             }
         }
     }
+
+    async _undoCommitHandler() {
+    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+        this._addMessageToChat('Agent', "⚠️ No workspace folder open.");
+        return;
+    }
+
+    const rootPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+
+    try {
+        const isGit = await this._isGitRepository();
+        if (!isGit) {
+            this._addMessageToChat('Agent', "⚠️ This folder is not a Git repository.");
+            return;
+        }
+
+        const { stdout: commitCount } = await exec('git rev-list --count HEAD', { cwd: rootPath });
+        if (parseInt(commitCount.trim()) === 0) {
+            this._addMessageToChat('Agent', "ℹ️ There are no commits to undo in this repository.");
+            return;
+        }
+
+        this._addMessageToChat('Agent', "🔄 Undoing last commit...");
+        
+        await exec('git reset --soft HEAD~1', { cwd: rootPath });
+
+        this._addMessageToChat('Agent', "✅ Last commit has been undone. Your changes are preserved in the staged area.");
+        
+    } catch (error) {
+        if (error.message.includes("ambiguous argument 'HEAD~1'")) {
+            this._addMessageToChat('Error', "Undo failed: You are likely at the initial commit of the repository.");
+        } else {
+            this._addMessageToChat('Error', `Undo failed: ${error.message}`);
+        }
+    }
+}
 
 
 }
