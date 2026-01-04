@@ -488,21 +488,23 @@ class GitAgentViewProvider {
             try {
                 const { stdout } = await exec('git rev-parse --abbrev-ref HEAD', { cwd: rootPath });
                 currentBranch = stdout.trim();
-            } catch (e) { console.error("Could not determine current branch, defaulting to 'main'", {e}); }
+            } catch (e) { /* fallback na main */ }
 
             const sourceBranch = await vscode.window.showInputBox({
-                prompt: "Enter the source branch (where to branch from)",
+                prompt: "Enter the source branch (base)",
                 placeHolder: "main",
-                value: currentBranch 
+                value: currentBranch
             });
 
-            if (sourceBranch === undefined) return; 
+            if (sourceBranch === undefined) return;
 
             const newBranchName = await vscode.window.showInputBox({
                 prompt: "Enter the name for your new branch",
-                placeHolder: "feature/new-cool-thing",
+                placeHolder: "feature/my-task",
                 validateInput: text => {
-                    return text && text.trim().length > 0 ? null : "Branch name cannot be empty";
+                    if (!text || text.trim().length === 0) return "Branch name cannot be empty";
+                    if (text.includes(" ")) return "Branch name cannot contain spaces";
+                    return null;
                 }
             });
 
@@ -512,20 +514,22 @@ class GitAgentViewProvider {
             const finalNew = newBranchName.trim();
 
             this._addMessageToChat('Agent', `🛠 Creating branch **${finalNew}** from **${finalSource}**...`);
-            
-            const { stdout, stderr } = await exec(`git checkout -b "${finalNew}" "${finalSource}"`, { cwd: rootPath });
+            await exec(`git checkout -b "${finalNew}" "${finalSource}"`, { cwd: rootPath });
+            this._addMessageToChat('Git', `Switched to a new branch '${finalNew}'`);
 
-            if (stdout || stderr) {
-                this._addMessageToChat('Git', stdout || stderr);
-                this._addMessageToChat('Agent', `✅ Switched to new branch: **${finalNew}**`);
-            }
+            this._addMessageToChat('Agent', `🚀 Publishing branch **${finalNew}** to origin...`);
+            
+            const { stdout: pushOut, stderr: pushErr } = await exec(`git push -u origin "${finalNew}"`, { cwd: rootPath });
+            
+            if (pushOut) this._addMessageToChat('Git', pushOut);
+            if (pushErr && pushErr.includes('branch')) this._addMessageToChat('Git', pushErr);
+
+            this._addMessageToChat('Agent', `✅ Branch **${finalNew}** created and published successfully.`);
 
         } catch (error) {
-            this._addMessageToChat('Error', `Failed to create branch: ${error.message}`);
+            this._addMessageToChat('Error', `Operation failed: ${error.message}`);
         }
     }
-
-
 }
 
 // This method is called when your extension is deactivated
