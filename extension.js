@@ -10,6 +10,7 @@ const fs = require('fs');
 const util = require('util');
 const {generatePrompt} = require('./utils/generatePrompt')
 const { generateCommitMessage } = require('./utils/prompts/generateCommitMessage');
+const {validateUserCommitMessage} = require('./utils/prompts/validateUserCommitMessage');
 const exec = util.promisify(cp.exec);
 
 // This method is called when your extension is activated
@@ -89,6 +90,10 @@ class GitAgentViewProvider {
         const genAI = new GoogleGenerativeAI(API_KEY);
         this._model = genAI.getGenerativeModel({ model: `${MODEL_NAME}` });
         this._isGit = isGit
+
+        // commit 
+        this._pendingCommitMessage = null;
+        this._isWaitingForCommitConfirmation = false;
     }
 
     async resolveWebviewView(webviewView) {
@@ -101,12 +106,18 @@ class GitAgentViewProvider {
                 await this._checkWorkspace()
             }
             if (data.type === 'userRequest'){ 
-                this._handleUserRequestWithAI(data.value);
+                if (this._isWaitingForCommitConfirmation) {
+                    await this._handleManualCommitMessage(data.value);
+                } else {
+                    await this._handleUserRequestWithAI(data.value);
+                }
             }
             if (data.type === 'quickButton') {
-                this._handleQuickButton(data.command)
+                if (data.command === 'generateCommit') await this._startCommitWorkflow();
+                else this._handleQuickButton(data.command);
             }
             if (data.type === 'actionButton') { // buttons provided by agent 
+                if (data.command === 'confirmCommit') await this._executeFinalCommit(this._pendingCommitMessage);
                 if (data.command === 'push') {
                     await this._pushHandler();
                 }
@@ -195,7 +206,7 @@ class GitAgentViewProvider {
 
         if (command === 'status') gitCommand = 'git status';
         if (command === 'generateCommit') {
-            await this._generateCommitHandler();
+            await this._startCommitWorkflow();
             this._disableButtons([]); 
             return;
         }
@@ -260,72 +271,79 @@ class GitAgentViewProvider {
     }
 
     // QUICK BUTTONS HANDLERS 
-    async _generateCommitHandler() {
-        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
-            this._addMessageToChat('Agent', "⚠️ No workspace folder open. Please open a project to use Git features.");
-            return;
-        }
-
+    async _startCommitWorkflow() {
+        if (!vscode.workspace.workspaceFolders) return;
         const rootPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
 
         try {
-            const isGit = await this._isGitRepository();
-            if (!isGit) {
-                this._addMessageToChat('Agent', "⚠️ This folder is not a Git repository. Initialize it first using 'git init'.");
+            const { stdout: status } = await exec('git status --porcelain', { cwd: rootPath });
+            if (!status.trim()) {
+                this._addMessageToChat('Agent', "ℹ️ Nothing to commit.");
                 return;
             }
 
-            const { stdout: statusOutput } = await exec('git status --porcelain', { cwd: rootPath });
-
-            if (!statusOutput.trim()) {
-                this._addMessageToChat('Agent', "ℹ️ Your working tree is clean. There is nothing to commit.");
-                return;
-            }
-
-            const lines = statusOutput.trim().split('\n');
-            
-            const staged = lines.filter(line => line[0] !== ' ' && line[0] !== '?');
-            const onlyUnstaged = lines.filter(line => (line[0] === ' ' || line[0] === '?') && line[1] !== ' ');
-
-            if (staged.length === 0) {
-                this._addMessageToChat('Agent', `❌ No changes staged for commit. I see ${onlyUnstaged.length} unstaged file(s).`);
-                return;
-            }
-
-            if (onlyUnstaged.length > 0) {
-                this._addMessageToChat('Agent', `📝 Note: Including ${staged.length} staged files. (Warning: ${onlyUnstaged.length} files are not staged and won't be committed).`);
-            }
-
-            this._addMessageToChat('Agent', "🤖 Analyzing changes...");
             const { stdout: diff } = await exec('git diff --cached', { cwd: rootPath });
-
-            if (!diff || diff.trim() === "") {
-                this._addMessageToChat('Agent', "You do not have any staged changes to commit. Or the diff is empty.");
+            if (!diff.trim()) {
+                this._addMessageToChat('Agent', "❌ No changes staged. Please 'git add' files first.");
                 return;
             }
 
-            const prompt = generateCommitMessage(diff);
-            
-            const response = await this._model.generateContent(prompt);
-            const commitMsg = response.response.text().trim().replace(/['"]/g, '');
+            this._addMessageToChat('Agent', "🤖 Generating suggested message...");
+            const response = await this._model.generateContent(generateCommitMessage(diff));
+            this._pendingCommitMessage = response.response.text().trim().replace(/['"]/g, '');
+            this._isWaitingForCommitConfirmation = true;
 
-            this._addMessageToChat('Agent', "🚀 Executing commit...");
-            await exec(`git commit -m "${commitMsg.replace(/"/g, '\\"')}"`, { cwd: rootPath });
-
-            this._addMessageToChat('Agent', `✅ Committed successfully!`, [
-                { label: "Push Changes", command: "push", secondary: false },
-                { label: "Undo Commit", command: "undo", secondary: true }
+            this._addMessageToChat('Agent', `I suggest this commit message:\n\n**${this._pendingCommitMessage}**\n\nDo you agree? If so, click confirm. If you want a different name, just type it below and press Enter.`, [
+                { label: "✅ Confirm & Commit", command: "confirmCommit", secondary: false }
             ]);
-            this._addMessageToChat('Git', `Message: ${commitMsg}`);
 
         } catch (error) {
-            console.error("Commit Error:", error);
-            
-            if (error.message.includes("identity unknown")) {
-                this._addMessageToChat('Error', "Git identity not set. Run 'git config user.email' and 'git config user.name' first.");
+            this._addMessageToChat('Error', `Workflow error: ${error.message}`);
+        }
+    }
+
+    async _handleManualCommitMessage(userInput) {
+        const cleanedInput = userInput.trim();
+
+        if (cleanedInput.length < 2) {
+            this._addMessageToChat('Agent', `⚠️ "${cleanedInput}" is too short for a commit message. Using my original suggestion instead.`);
+            await this._executeFinalCommit(this._pendingCommitMessage);
+            return;
+        }
+
+        this._addMessageToChat('Agent', "🔍 Checking your message...");
+        try {
+            const response = await this._model.generateContent(validateUserCommitMessage(cleanedInput));
+            const result = response.response.text().trim();
+
+            if (result.toUpperCase() === "INVALID") {
+                this._addMessageToChat('Agent', "❌ That doesn't look like a valid commit message. Falling back to suggestion.");
+                await this._executeFinalCommit(this._pendingCommitMessage);
             } else {
-                this._addMessageToChat('Error', `Commit failed: ${error.message}`);
+                await this._executeFinalCommit(result);
             }
+        } catch (e) {
+            await this._executeFinalCommit(cleanedInput);
+        }
+    }
+
+    async _executeFinalCommit(message) {
+        const rootPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        try {
+            this._disableButtons(['all']);
+            await exec(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: rootPath });
+            
+            this._isWaitingForCommitConfirmation = false;
+            this._pendingCommitMessage = null;
+
+            this._addMessageToChat('Agent', `✅ Committed with message: "${message}"`, [
+                { label: "🚀 Push", command: "push", secondary: false },
+                { label: "🔄 Undo", command: "undo", secondary: true }
+            ]);
+        } catch (error) {
+            this._addMessageToChat('Error', `Git error: ${error.message}`);
+        } finally {
+            this._disableButtons([]);
         }
     }
 
