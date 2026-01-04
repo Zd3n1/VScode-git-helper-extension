@@ -105,6 +105,14 @@ class GitAgentViewProvider {
             if (data.type === 'quickButton') {
                 this._handleQuickButton(data.command)
             }
+            if (data.type === 'actionButton') { // buttons provided by agent 
+                if (data.command === 'push') {
+                    await this._pushHandler();
+                }
+                if (data.command === 'undo') {
+                    this._addMessageToChat('Agent', "Undo commit is not implemented yet.");
+                }
+            }
             if (data.type === 'changeModel') {
                 this._changeModel(data.value)
             }
@@ -232,9 +240,14 @@ class GitAgentViewProvider {
         }
     }
 
-    _addMessageToChat(sender, text) {
+    _addMessageToChat(sender, text, actions = []) {
         if (this._view) {
-            this._view.webview.postMessage({ type: 'addResponse', sender: sender, text: text });
+            this._view.webview.postMessage({ 
+                type: 'addResponse', 
+                sender: sender, 
+                text: text,
+                actions: actions 
+            });
         }
     }
 
@@ -298,7 +311,10 @@ class GitAgentViewProvider {
             this._addMessageToChat('Agent', "🚀 Executing commit...");
             await exec(`git commit -m "${commitMsg.replace(/"/g, '\\"')}"`, { cwd: rootPath });
 
-            this._addMessageToChat('Agent', `✅ Committed successfully!`);
+            this._addMessageToChat('Agent', `✅ Committed successfully!`, [
+                { label: "Push Changes", command: "push", secondary: false },
+                { label: "Undo Commit", command: "undo", secondary: true }
+            ]);
             this._addMessageToChat('Git', `Message: ${commitMsg}`);
 
         } catch (error) {

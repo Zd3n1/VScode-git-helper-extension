@@ -81,6 +81,34 @@ module.exports = `
             color: var(--vscode-disabledForeground);
         }
 
+        .msg-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn-action {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            padding: 4px 12px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            transition: opacity 0.2s;
+        }
+
+        .btn-action:hover {
+            opacity: 0.9;
+        }
+
+        .btn-action.secondary {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+        }
+
         .chat-box { 
             flex: 1; 
             overflow-y: auto; 
@@ -313,7 +341,7 @@ module.exports = `
                 let style = 'agent';
                 if (message.sender === 'Git') style = 'git';
                 if (message.sender === 'Error') style = 'error';
-                addMessage(message.sender, message.text, style);
+                addMessage(message.sender, message.text, style, message.actions); 
             }
             if (message.type === 'setButtonsState'){
                 const buttonsToDisable = message.disable;
@@ -328,7 +356,7 @@ module.exports = `
             }
         });
 
-        function addMessage(sender, text, type) {
+        function addMessage(sender, text, type, actions = []) {
             const wrapper = document.createElement('div');
             wrapper.className = 'message-wrapper ' + type;
 
@@ -340,11 +368,30 @@ module.exports = `
             msgDiv.className = 'msg ' + type;
             msgDiv.innerText = text;
 
+            if (actions && actions.length > 0) {
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'msg-actions';
+                
+                actions.forEach(action => {
+                    const btn = document.createElement('button');
+                    btn.className = 'btn-action' + (action.secondary ? ' secondary' : '');
+                    btn.innerText = action.label;
+                    btn.onclick = () => {
+                        vscode.postMessage({ 
+                            type: 'actionButton', 
+                            command: action.command 
+                        });
+                        actionsDiv.style.pointerEvents = 'none';
+                        actionsDiv.style.opacity = '0.5';
+                    };
+                    actionsDiv.appendChild(btn);
+                });
+                msgDiv.appendChild(actionsDiv);
+            }
+
             wrapper.appendChild(nameSpan);
             wrapper.appendChild(msgDiv);
-            
             log.appendChild(wrapper);
-            
             log.scrollTop = log.scrollHeight;
         }
     </script>
