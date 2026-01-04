@@ -105,6 +105,14 @@ class GitAgentViewProvider {
             if (data.type === 'quickButton') {
                 this._handleQuickButton(data.command)
             }
+            if (data.type === 'actionButton') { // buttons provided by agent 
+                if (data.command === 'push') {
+                    await this._pushHandler();
+                }
+                if (data.command === 'undo') {
+                    await this._undoCommitHandler();
+                }
+            }
             if (data.type === 'changeModel') {
                 this._changeModel(data.value)
             }
@@ -190,7 +198,11 @@ class GitAgentViewProvider {
             this._disableButtons([]); 
             return;
         }
-        // if (command === 'pushCommit') gitCommand = 'git push';
+        if (command === 'pushCommit') {
+            await this._pushHandler();
+            this._disableButtons([]);
+            return;
+        }
         // if (command === 'pull') gitCommand = 'git pull';
         // if (command === 'fetch') gitCommand = 'git fetch';
 
@@ -228,9 +240,14 @@ class GitAgentViewProvider {
         }
     }
 
-    _addMessageToChat(sender, text) {
+    _addMessageToChat(sender, text, actions = []) {
         if (this._view) {
-            this._view.webview.postMessage({ type: 'addResponse', sender: sender, text: text });
+            this._view.webview.postMessage({ 
+                type: 'addResponse', 
+                sender: sender, 
+                text: text,
+                actions: actions 
+            });
         }
     }
 
@@ -238,7 +255,7 @@ class GitAgentViewProvider {
         return HTML_CONTENT;
     }
 
-    // QUICK BUTTONS HANDLER 
+    // QUICK BUTTONS HANDLERS 
     async _generateCommitHandler() {
         if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
             this._addMessageToChat('Agent', "⚠️ No workspace folder open. Please open a project to use Git features.");
@@ -267,8 +284,7 @@ class GitAgentViewProvider {
             const onlyUnstaged = lines.filter(line => (line[0] === ' ' || line[0] === '?') && line[1] !== ' ');
 
             if (staged.length === 0) {
-                this._addMessageToChat('Agent', `❌ No changes staged for commit.`);
-                this._addMessageToChat('Agent', `I see ${onlyUnstaged.length} unstaged file(s). Please use "git add" to stage them before committing.`);
+                this._addMessageToChat('Agent', `❌ No changes staged for commit. I see ${onlyUnstaged.length} unstaged file(s).`);
                 return;
             }
 
@@ -294,7 +310,10 @@ class GitAgentViewProvider {
             this._addMessageToChat('Agent', "🚀 Executing commit...");
             await exec(`git commit -m "${commitMsg.replace(/"/g, '\\"')}"`, { cwd: rootPath });
 
-            this._addMessageToChat('Agent', `✅ Committed successfully!`);
+            this._addMessageToChat('Agent', `✅ Committed successfully!`, [
+                { label: "Push Changes", command: "push", secondary: false },
+                { label: "Undo Commit", command: "undo", secondary: true }
+            ]);
             this._addMessageToChat('Git', `Message: ${commitMsg}`);
 
         } catch (error) {
@@ -307,6 +326,88 @@ class GitAgentViewProvider {
             }
         }
     }
+
+    async _pushHandler() {
+        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+            this._addMessageToChat('Agent', "⚠️ No workspace folder open. Please open a project first.");
+            return;
+        }
+
+        const rootPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+
+        try {
+            const isGit = await this._isGitRepository();
+            if (!isGit) {
+                this._addMessageToChat('Agent', "⚠️ This folder is not a Git repository.");
+                return;
+            }
+
+            const { stdout: statusOutput } = await exec('git status -sb', { cwd: rootPath });
+
+            if (!statusOutput.includes('ahead')) {
+                this._addMessageToChat('Agent', "ℹ️ Your branch is up to date with remote. There are no local commits to push.");
+                return;
+            }
+
+            this._addMessageToChat('Agent', "🚀 Pushing commits to remote repository...");
+            
+            const { stdout, stderr } = await exec('git push', { cwd: rootPath });
+
+            this._addMessageToChat('Agent', "✅ Successfully pushed to remote.");
+            
+            if (stdout) {
+                this._addMessageToChat('Git', stdout);
+            }
+            if (stderr && !stderr.includes('To ')) {
+                this._addMessageToChat('Git', stderr);
+            }
+
+        } catch (error) {
+            if (error.message.includes("no upstream branch")) {
+                this._addMessageToChat('Error', "Push failed: The current branch has no upstream branch. Set it using 'git push -u origin <branch_name>'.");
+            } else if (error.message.includes("rejected") || error.message.includes("non-fast-forward")) {
+                this._addMessageToChat('Error', "Push rejected: Remote contains work that you do not have locally. Try pulling first.");
+            } else {
+                this._addMessageToChat('Error', `Push failed: ${error.message}`);
+            }
+        }
+    }
+
+    async _undoCommitHandler() {
+    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+        this._addMessageToChat('Agent', "⚠️ No workspace folder open.");
+        return;
+    }
+
+    const rootPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+
+    try {
+        const isGit = await this._isGitRepository();
+        if (!isGit) {
+            this._addMessageToChat('Agent', "⚠️ This folder is not a Git repository.");
+            return;
+        }
+
+        const { stdout: commitCount } = await exec('git rev-list --count HEAD', { cwd: rootPath });
+        if (parseInt(commitCount.trim()) === 0) {
+            this._addMessageToChat('Agent', "ℹ️ There are no commits to undo in this repository.");
+            return;
+        }
+
+        this._addMessageToChat('Agent', "🔄 Undoing last commit...");
+        
+        await exec('git reset --soft HEAD~1', { cwd: rootPath });
+
+        this._addMessageToChat('Agent', "✅ Last commit has been undone. Your changes are preserved in the staged area.");
+        
+    } catch (error) {
+        if (error.message.includes("ambiguous argument 'HEAD~1'")) {
+            this._addMessageToChat('Error', "Undo failed: You are likely at the initial commit of the repository.");
+        } else {
+            this._addMessageToChat('Error', `Undo failed: ${error.message}`);
+        }
+    }
+}
 
 
 }
