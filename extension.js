@@ -140,12 +140,12 @@ class GitAgentViewProvider {
     async _checkWorkspace(){
          if (!vscode.workspace.workspaceFolders) {
             this._addMessageToChat('System', "⚠️ You don't have open any folder");
-            this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-checkout']);
+            this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-new-branch-checkout']);
         } else {
             const isGit = await this._isGitRepository()
             if(!isGit){
                 this._addMessageToChat('System', "Current folder is not a Git repository.");
-                this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-checkout']);
+                this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-new-branch-checkout']);
             }
         }
     }
@@ -166,7 +166,7 @@ class GitAgentViewProvider {
             this._view.webview.postMessage({ 
                 type: 'setButtonsState', 
                 disable: idsArray.includes('all') ? [
-                    'btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-checkout', 'sendBtn'
+                    'btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-new-branch-checkout', 'sendBtn'
                 ] : idsArray 
             });
         }
@@ -217,6 +217,11 @@ class GitAgentViewProvider {
         }
         if (command === 'sync') {
             await this._syncHandler();
+            this._disableButtons([]);
+            return;
+        }
+        if (command === 'newBranchCheckout') {
+            await this._newBranchCheckoutHandler();
             this._disableButtons([]);
             return;
         }
@@ -471,6 +476,52 @@ class GitAgentViewProvider {
             } else {
                 this._addMessageToChat('Error', `Sync failed: ${error.message}`);
             }
+        }
+    }
+
+    async _newBranchCheckoutHandler() {
+        if (!vscode.workspace.workspaceFolders) return;
+        const rootPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+
+        try {
+            let currentBranch = 'main';
+            try {
+                const { stdout } = await exec('git rev-parse --abbrev-ref HEAD', { cwd: rootPath });
+                currentBranch = stdout.trim();
+            } catch (e) { console.error("Could not determine current branch, defaulting to 'main'", {e}); }
+
+            const sourceBranch = await vscode.window.showInputBox({
+                prompt: "Enter the source branch (where to branch from)",
+                placeHolder: "main",
+                value: currentBranch 
+            });
+
+            if (sourceBranch === undefined) return; 
+
+            const newBranchName = await vscode.window.showInputBox({
+                prompt: "Enter the name for your new branch",
+                placeHolder: "feature/new-cool-thing",
+                validateInput: text => {
+                    return text && text.trim().length > 0 ? null : "Branch name cannot be empty";
+                }
+            });
+
+            if (!newBranchName) return;
+
+            const finalSource = sourceBranch.trim() || 'main';
+            const finalNew = newBranchName.trim();
+
+            this._addMessageToChat('Agent', `🛠 Creating branch **${finalNew}** from **${finalSource}**...`);
+            
+            const { stdout, stderr } = await exec(`git checkout -b "${finalNew}" "${finalSource}"`, { cwd: rootPath });
+
+            if (stdout || stderr) {
+                this._addMessageToChat('Git', stdout || stderr);
+                this._addMessageToChat('Agent', `✅ Switched to new branch: **${finalNew}**`);
+            }
+
+        } catch (error) {
+            this._addMessageToChat('Error', `Failed to create branch: ${error.message}`);
         }
     }
 
