@@ -128,12 +128,12 @@ class GitAgentViewProvider {
     async _checkWorkspace(){
          if (!vscode.workspace.workspaceFolders) {
             this._addMessageToChat('System', "⚠️ You don't have open any folder");
-            this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-pull', 'btn-fetch', 'btn-checkout']);
+            this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-checkout']);
         } else {
             const isGit = await this._isGitRepository()
             if(!isGit){
                 this._addMessageToChat('System', "Current folder is not a Git repository.");
-                this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-pull', 'btn-fetch', 'btn-checkout']);
+                this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-checkout']);
             }
         }
     }
@@ -154,7 +154,7 @@ class GitAgentViewProvider {
             this._view.webview.postMessage({ 
                 type: 'setButtonsState', 
                 disable: idsArray.includes('all') ? [
-                    'btn-status', 'btn-commit', 'btn-push', 'btn-pull', 'btn-fetch', 'btn-checkout', 'sendBtn'
+                    'btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-checkout', 'sendBtn'
                 ] : idsArray 
             });
         }
@@ -203,8 +203,11 @@ class GitAgentViewProvider {
             this._disableButtons([]);
             return;
         }
-        // if (command === 'pull') gitCommand = 'git pull';
-        // if (command === 'fetch') gitCommand = 'git fetch';
+        if (command === 'sync') {
+            await this._syncHandler();
+            this._disableButtons([]);
+            return;
+        }
 
         if (!gitCommand) {
             this._addMessageToChat('Error', `The command "${command}" is not defined.`);
@@ -374,40 +377,85 @@ class GitAgentViewProvider {
     }
 
     async _undoCommitHandler() {
-    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
-        this._addMessageToChat('Agent', "⚠️ No workspace folder open.");
-        return;
-    }
-
-    const rootPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
-
-    try {
-        const isGit = await this._isGitRepository();
-        if (!isGit) {
-            this._addMessageToChat('Agent', "⚠️ This folder is not a Git repository.");
+        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+            this._addMessageToChat('Agent', "⚠️ No workspace folder open.");
             return;
         }
 
-        const { stdout: commitCount } = await exec('git rev-list --count HEAD', { cwd: rootPath });
-        if (parseInt(commitCount.trim()) === 0) {
-            this._addMessageToChat('Agent', "ℹ️ There are no commits to undo in this repository.");
+        const rootPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+
+        try {
+            const isGit = await this._isGitRepository();
+            if (!isGit) {
+                this._addMessageToChat('Agent', "⚠️ This folder is not a Git repository.");
+                return;
+            }
+
+            const { stdout: commitCount } = await exec('git rev-list --count HEAD', { cwd: rootPath });
+            if (parseInt(commitCount.trim()) === 0) {
+                this._addMessageToChat('Agent', "ℹ️ There are no commits to undo in this repository.");
+                return;
+            }
+
+            this._addMessageToChat('Agent', "🔄 Undoing last commit...");
+            
+            await exec('git reset --soft HEAD~1', { cwd: rootPath });
+
+            this._addMessageToChat('Agent', "✅ Last commit has been undone. Your changes are preserved in the staged area.");
+            
+        } catch (error) {
+            if (error.message.includes("ambiguous argument 'HEAD~1'")) {
+                this._addMessageToChat('Error', "Undo failed: You are likely at the initial commit of the repository.");
+            } else {
+                this._addMessageToChat('Error', `Undo failed: ${error.message}`);
+            }
+        }
+    }
+
+    async _syncHandler() {
+        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+            this._addMessageToChat('Agent', "⚠️ No workspace folder open.");
             return;
         }
 
-        this._addMessageToChat('Agent', "🔄 Undoing last commit...");
-        
-        await exec('git reset --soft HEAD~1', { cwd: rootPath });
+        const rootPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
 
-        this._addMessageToChat('Agent', "✅ Last commit has been undone. Your changes are preserved in the staged area.");
-        
-    } catch (error) {
-        if (error.message.includes("ambiguous argument 'HEAD~1'")) {
-            this._addMessageToChat('Error', "Undo failed: You are likely at the initial commit of the repository.");
-        } else {
-            this._addMessageToChat('Error', `Undo failed: ${error.message}`);
+        try {
+            const isGit = await this._isGitRepository();
+            if (!isGit) {
+                this._addMessageToChat('Agent', "⚠️ This folder is not a Git repository.");
+                return;
+            }
+
+            this._addMessageToChat('Agent', "📡 Synchronizing with remote...");
+
+            this._addMessageToChat('Agent', "📥 Fetching latest information...");
+            const { stdout: fetchOut } = await exec('git fetch', { cwd: rootPath });
+            if (fetchOut) this._addMessageToChat('Git', fetchOut);
+
+            this._addMessageToChat('Agent', "🚀 Pulling changes...");
+            const { stdout: pullOut, stderr: pullErr } = await exec('git pull', { cwd: rootPath });
+
+            if (pullOut) this._addMessageToChat('Git', pullOut);
+            
+            if (pullOut.includes('Already up to date')) {
+                this._addMessageToChat('Agent', "✅ Everything is already up to date.");
+            } else {
+                this._addMessageToChat('Agent', "✅ Synchronization complete.");
+            }
+
+        } catch (error) {
+            if (error.message.includes("merge conflict")) {
+                this._addMessageToChat('Error', "❌ Sync failed: Merge conflicts detected. Please resolve them in your editor.");
+            } else if (error.message.includes("no upstream branch")) {
+                this._addMessageToChat('Error', "❌ Sync failed: The current branch has no remote tracking branch.");
+            } else if (error.message.includes("could not resolve host")) {
+                this._addMessageToChat('Error', "❌ Sync failed: Network error. Could not reach the remote repository.");
+            } else {
+                this._addMessageToChat('Error', `Sync failed: ${error.message}`);
+            }
         }
     }
-}
 
 
 }

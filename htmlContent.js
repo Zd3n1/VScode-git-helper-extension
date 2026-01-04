@@ -244,8 +244,7 @@ module.exports = `
             <button id="btn-status" class="btn-quick" onclick="runGit('status')">Git Status</button>
             <button id="btn-commit" class="btn-quick" onclick="runGit('generateCommit')">Commit</button>
             <button id="btn-push" class="btn-quick" onclick="runGit('pushCommit')">Push</button>
-            <button id="btn-pull" class="btn-quick" onclick="runGit('pull')">Pull</button>
-            <button id="btn-fetch" class="btn-quick" onclick="runGit('fetch')">Fetch</button>
+            <button id="btn-sync" class="btn-quick" onclick="runGit('sync')">Sync</button>
             <button id="btn-checkout" class="btn-quick" onclick="runGit('checkout')">Checkout branch</button>
         </div>
     </div>
@@ -318,12 +317,8 @@ module.exports = `
                 userText = "Push commits to the remote repository";
                 command = action; 
             } 
-            else if (action === 'pull') {
-                userText = "Pull changes from the remote repository";
-                command = action; 
-            } 
-            else if (action === 'fetch') {
-                userText = "Fetch latest info from remote (git fetch)";
+            else if (action === 'sync') {
+                userText = "Sync changes from the remote repository";
                 command = action; 
             } 
             else if (action === 'checkout') {
