@@ -245,7 +245,7 @@ module.exports = `
             <button id="btn-commit" class="btn-quick" onclick="runGit('generateCommit')">Commit</button>
             <button id="btn-push" class="btn-quick" onclick="runGit('pushCommit')">Push</button>
             <button id="btn-sync" class="btn-quick" onclick="runGit('sync')">Sync</button>
-            <button id="btn-checkout" class="btn-quick" onclick="runGit('checkout')">Checkout branch</button>
+            <button id="btn-new-branch-checkout" class="btn-quick" onclick="runGit('newBranchCheckout')">New Branch Checkout</button>
         </div>
     </div>
 
@@ -321,8 +321,8 @@ module.exports = `
                 userText = "Sync changes from the remote repository";
                 command = action; 
             } 
-            else if (action === 'checkout') {
-                userText = "I want to switch to another branch"; 
+            else if (action === 'newBranchCheckout') {
+                userText = "I want to create a new branch and switch to it"; 
                 command = action; 
             }
                 

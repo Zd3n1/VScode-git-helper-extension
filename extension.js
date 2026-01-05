@@ -140,12 +140,12 @@ class GitAgentViewProvider {
     async _checkWorkspace(){
          if (!vscode.workspace.workspaceFolders) {
             this._addMessageToChat('System', "⚠️ You don't have open any folder");
-            this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-checkout']);
+            this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-new-branch-checkout']);
         } else {
             const isGit = await this._isGitRepository()
             if(!isGit){
                 this._addMessageToChat('System', "Current folder is not a Git repository.");
-                this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-checkout']);
+                this._disableButtons(['btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-new-branch-checkout']);
             }
         }
     }
@@ -166,7 +166,7 @@ class GitAgentViewProvider {
             this._view.webview.postMessage({ 
                 type: 'setButtonsState', 
                 disable: idsArray.includes('all') ? [
-                    'btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-checkout', 'sendBtn'
+                    'btn-status', 'btn-commit', 'btn-push', 'btn-sync', 'btn-new-branch-checkout', 'sendBtn'
                 ] : idsArray 
             });
         }
@@ -217,6 +217,11 @@ class GitAgentViewProvider {
         }
         if (command === 'sync') {
             await this._syncHandler();
+            this._disableButtons([]);
+            return;
+        }
+        if (command === 'newBranchCheckout') {
+            await this._newBranchCheckoutHandler();
             this._disableButtons([]);
             return;
         }
@@ -474,7 +479,67 @@ class GitAgentViewProvider {
         }
     }
 
+    async _newBranchCheckoutHandler() {
+        if (!vscode.workspace.workspaceFolders) return;
+        const rootPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
 
+        try {
+            const { stdout: currentBranchOut } = await exec('git rev-parse --abbrev-ref HEAD', { cwd: rootPath });
+            const currentBranch = currentBranchOut.trim();
+
+            const { stdout: branchListOut } = await exec('git branch --format="%(refname:short)"', { cwd: rootPath });
+            const allBranches = branchListOut.trim().split('\n').map(b => b.trim());
+
+            const sortedBranchItems = [
+                { 
+                    label: currentBranch, 
+                    description: "(current branch)", 
+                    alwaysShow: true 
+                },
+                ...allBranches
+                    .filter(b => b !== currentBranch)
+                    .map(b => ({ label: b }))
+            ];
+
+            const selection = await vscode.window.showQuickPick(sortedBranchItems, {
+                placeHolder: "Select the source branch (base)",
+                title: "Source Branch Selection",
+            });
+
+            if (!selection) return;
+            const sourceBranch = selection.label;
+
+            const newBranchName = await vscode.window.showInputBox({
+                prompt: `Creating new branch from "${sourceBranch}". Enter new branch name:`,
+                placeHolder: "feature/new-feature",
+                validateInput: text => {
+                    if (!text || text.trim().length === 0) return "Branch name cannot be empty";
+                    if (text.includes(" ")) return "Branch name cannot contain spaces (use - or _)";
+                    if (allBranches.includes(text.trim())) return "This branch already exists";
+                    return null;
+                }
+            });
+
+            if (!newBranchName) return;
+            const finalNew = newBranchName.trim();
+
+            this._addMessageToChat('Agent', `🛠 Creating branch **${finalNew}** from **${sourceBranch}**...`);
+            
+            await exec(`git checkout -b "${finalNew}" "${sourceBranch}"`, { cwd: rootPath });
+            this._addMessageToChat('Git', `Switched to a new branch '${finalNew}'`);
+
+            this._addMessageToChat('Agent', `🚀 Publishing branch **${finalNew}** to origin...`);
+            const { stdout: pushOut, stderr: pushErr } = await exec(`git push -u origin "${finalNew}"`, { cwd: rootPath });
+            
+            if (pushOut) this._addMessageToChat('Git', pushOut);
+            if (pushErr && pushErr.includes('branch')) this._addMessageToChat('Git', pushErr);
+
+            this._addMessageToChat('Agent', `✅ Done. Branch **${finalNew}** is ready and published.`);
+
+        } catch (error) {
+            this._addMessageToChat('Error', `Operation failed: ${error.message}`);
+        }
+    }
 }
 
 // This method is called when your extension is deactivated
