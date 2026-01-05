@@ -484,47 +484,57 @@ class GitAgentViewProvider {
         const rootPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
 
         try {
-            let currentBranch = 'main';
-            try {
-                const { stdout } = await exec('git rev-parse --abbrev-ref HEAD', { cwd: rootPath });
-                currentBranch = stdout.trim();
-            } catch (e) { /* fallback na main */ }
+            const { stdout: currentBranchOut } = await exec('git rev-parse --abbrev-ref HEAD', { cwd: rootPath });
+            const currentBranch = currentBranchOut.trim();
 
-            const sourceBranch = await vscode.window.showInputBox({
-                prompt: "Enter the source branch (base)",
-                placeHolder: "main",
-                value: currentBranch
+            const { stdout: branchListOut } = await exec('git branch --format="%(refname:short)"', { cwd: rootPath });
+            const allBranches = branchListOut.trim().split('\n').map(b => b.trim());
+
+            const sortedBranchItems = [
+                { 
+                    label: currentBranch, 
+                    description: "(current branch)", 
+                    alwaysShow: true 
+                },
+                ...allBranches
+                    .filter(b => b !== currentBranch)
+                    .map(b => ({ label: b }))
+            ];
+
+            const selection = await vscode.window.showQuickPick(sortedBranchItems, {
+                placeHolder: "Select the source branch (base)",
+                title: "Source Branch Selection",
             });
 
-            if (sourceBranch === undefined) return;
+            if (!selection) return;
+            const sourceBranch = selection.label;
 
             const newBranchName = await vscode.window.showInputBox({
-                prompt: "Enter the name for your new branch",
-                placeHolder: "feature/my-task",
+                prompt: `Creating new branch from "${sourceBranch}". Enter new branch name:`,
+                placeHolder: "feature/new-feature",
                 validateInput: text => {
                     if (!text || text.trim().length === 0) return "Branch name cannot be empty";
-                    if (text.includes(" ")) return "Branch name cannot contain spaces";
+                    if (text.includes(" ")) return "Branch name cannot contain spaces (use - or _)";
+                    if (allBranches.includes(text.trim())) return "This branch already exists";
                     return null;
                 }
             });
 
             if (!newBranchName) return;
-
-            const finalSource = sourceBranch.trim() || 'main';
             const finalNew = newBranchName.trim();
 
-            this._addMessageToChat('Agent', `🛠 Creating branch **${finalNew}** from **${finalSource}**...`);
-            await exec(`git checkout -b "${finalNew}" "${finalSource}"`, { cwd: rootPath });
+            this._addMessageToChat('Agent', `🛠 Creating branch **${finalNew}** from **${sourceBranch}**...`);
+            
+            await exec(`git checkout -b "${finalNew}" "${sourceBranch}"`, { cwd: rootPath });
             this._addMessageToChat('Git', `Switched to a new branch '${finalNew}'`);
 
             this._addMessageToChat('Agent', `🚀 Publishing branch **${finalNew}** to origin...`);
-            
             const { stdout: pushOut, stderr: pushErr } = await exec(`git push -u origin "${finalNew}"`, { cwd: rootPath });
             
             if (pushOut) this._addMessageToChat('Git', pushOut);
             if (pushErr && pushErr.includes('branch')) this._addMessageToChat('Git', pushErr);
 
-            this._addMessageToChat('Agent', `✅ Branch **${finalNew}** created and published successfully.`);
+            this._addMessageToChat('Agent', `✅ Done. Branch **${finalNew}** is ready and published.`);
 
         } catch (error) {
             this._addMessageToChat('Error', `Operation failed: ${error.message}`);
