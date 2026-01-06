@@ -197,6 +197,8 @@ module.exports = `
             color: #ffcccc; 
             border: 1px solid rgba(255, 0, 0, 0.4);
             border-radius: 8px;
+            word-break: break-word;
+            overflow-wrap: break-word;
         }
 
         .input-container {
