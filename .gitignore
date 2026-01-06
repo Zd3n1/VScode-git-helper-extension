@@ -1,2 +1,4 @@
 node_modules/
 .env
+vscode-git-helper-extension/.DS_Store
+.DS_Store

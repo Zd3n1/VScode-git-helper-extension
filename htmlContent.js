@@ -39,7 +39,7 @@ module.exports = `
 
         h3 { margin: 0; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px;}
 
-        .model-select {
+        .model-select, .history-select {
             background: var(--vscode-dropdown-background);
             color: var(--vscode-dropdown-foreground);
             border: 1px solid var(--vscode-dropdown-border);
@@ -50,8 +50,38 @@ module.exports = `
             outline: none;
             cursor: pointer;
         }
-        .model-select:focus {
+        .model-select:focus, .history-select:focus {
             border-color: var(--vscode-focusBorder);
+        }
+        
+        .history-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid var(--vscode-widget-border);
+        }
+        
+        .history-select {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .btn-new-chat {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            border: none;
+            padding: 4px 10px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+        .btn-new-chat:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
         }
 
         p { margin: 0 0 8px 0; font-size: 11px; opacity: 0.7; }
@@ -218,7 +248,7 @@ module.exports = `
             cursor: pointer; 
             border-radius: 4px;
             font-size: 12px;
-            margin-bottom: 2px;
+            flex-shrink: 0;
         }
         #sendBtn:hover { background: var(--vscode-button-hoverBackground); }
         #sendBtn:disabled {
@@ -237,6 +267,13 @@ module.exports = `
                 <option value="gemini-2.5-flash" selected>⚡ Gemini Flash</option>
                 <option value="gemini-2.5-pro">🧠 Gemini Pro</option>
             </select>
+        </div>
+        
+        <div class="history-container">
+            <select id="historySelect" class="history-select">
+                <option value="current">Current Chat</option>
+            </select>
+            <button id="btnNewChat" class="btn-new-chat">+ New</button>
         </div>
 
         <p>Quick actions: </p>
@@ -265,12 +302,25 @@ module.exports = `
         const input = document.getElementById('prompt');
         const btn = document.getElementById('sendBtn');
         const modelSelect = document.getElementById('modelSelect');
+        const historySelect = document.getElementById('historySelect');
+        const btnNewChat = document.getElementById('btnNewChat');
 
         vscode.postMessage({ type: 'webviewLoaded' });
 
         modelSelect.addEventListener('change', () => {
             const selectedModel = modelSelect.value;
             vscode.postMessage({ type: 'changeModel', value: selectedModel });
+        });
+        
+        historySelect.addEventListener('change', () => {
+            const selectedSessionId = historySelect.value;
+            if (selectedSessionId !== 'current') {
+                vscode.postMessage({ type: 'loadHistory', sessionId: selectedSessionId });
+            }
+        });
+        
+        btnNewChat.addEventListener('click', () => {
+            vscode.postMessage({ type: 'newChat' });
         });
 
         input.addEventListener('input', function() {
@@ -349,6 +399,20 @@ module.exports = `
                     });
                 }
             }
+            if (message.type === 'updateHistoryList') {
+                updateHistoryDropdown(message.sessions);
+            }
+            if (message.type === 'clearChat') {
+                log.innerHTML = '';
+            }
+            if (message.type === 'loadChatHistory') {
+                log.innerHTML = '';
+                if (message.messages && message.messages.length > 0) {
+                    message.messages.forEach(msg => {
+                        addMessage(msg.sender, msg.text, msg.style, msg.actions || []);
+                    });
+                }
+            }
         });
 
         function addMessage(sender, text, type, actions = []) {
@@ -388,6 +452,18 @@ module.exports = `
             wrapper.appendChild(msgDiv);
             log.appendChild(wrapper);
             log.scrollTop = log.scrollHeight;
+        }
+        
+        function updateHistoryDropdown(sessions) {
+            historySelect.innerHTML = '<option value="current">📝 Current Chat</option>';
+            if (sessions && sessions.length > 0) {
+                sessions.forEach(session => {
+                    const option = document.createElement('option');
+                    option.value = session.id;
+                    option.textContent = session.displayName || session.name;
+                    historySelect.appendChild(option);
+                });
+            }
         }
     </script>
 </body>

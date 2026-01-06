@@ -36,7 +36,7 @@ async function activate(context) {
 
 	// Use the console to output diagnostic information (console.log) and errors (console.error)
 	// This line of code will only be executed once when your extension is activated
-	const provider = new GitAgentViewProvider(context.extensionUri);
+	const provider = new GitAgentViewProvider(context.extensionUri, context);
 	context.subscriptions.push(
         vscode.window.registerWebviewViewProvider('gitAgentView', provider)
     );
@@ -85,15 +85,20 @@ function _logInitialInformation(data){
 }
 
 class GitAgentViewProvider {
-    constructor(extensionUri, isGit) {
+    constructor(extensionUri, context) {
         this._extensionUri = extensionUri;
+        this._context = context;
         const genAI = new GoogleGenerativeAI(API_KEY);
         this._model = genAI.getGenerativeModel({ model: `${MODEL_NAME}` });
-        this._isGit = isGit
+        this._isGit = false;
 
         // commit 
         this._pendingCommitMessage = null;
         this._isWaitingForCommitConfirmation = false;
+        
+        // chat history tracking
+        this._currentMessages = [];
+        this._currentSessionId = this._generateSessionId();
     }
 
     async resolveWebviewView(webviewView) {
@@ -103,7 +108,8 @@ class GitAgentViewProvider {
 
         webviewView.webview.onDidReceiveMessage(async data => {
             if (data.type === 'webviewLoaded'){
-                await this._checkWorkspace()
+                await this._checkWorkspace();
+                await this._sendHistoryList();
             }
             if (data.type === 'userRequest'){ 
                 if (this._isWaitingForCommitConfirmation) {
@@ -127,6 +133,12 @@ class GitAgentViewProvider {
             }
             if (data.type === 'changeModel') {
                 this._changeModel(data.value)
+            }
+            if (data.type === 'newChat') {
+                await this._startNewChat();
+            }
+            if (data.type === 'loadHistory') {
+                await this._loadChatSession(data.sessionId);
             }
         });
     }
@@ -262,12 +274,29 @@ class GitAgentViewProvider {
 
     _addMessageToChat(sender, text, actions = []) {
         if (this._view) {
+            let style = 'agent';
+            if (sender === 'Git') style = 'git';
+            if (sender === 'Error') style = 'error';
+            if (sender === 'You') style = 'user';
+            
+            // Track message in current session
+            this._currentMessages.push({
+                sender: sender,
+                text: text,
+                style: style,
+                actions: actions,
+                timestamp: Date.now()
+            });
+            
             this._view.webview.postMessage({ 
                 type: 'addResponse', 
                 sender: sender, 
                 text: text,
                 actions: actions 
             });
+            
+            // Auto-save session after each message
+            this._saveCurrentSession();
         }
     }
 
@@ -538,6 +567,136 @@ class GitAgentViewProvider {
 
         } catch (error) {
             this._addMessageToChat('Error', `Operation failed: ${error.message}`);
+        }
+    }
+    
+    // ==================== CHAT HISTORY METHODS ====================
+    
+    _generateSessionId() {
+        return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+    
+    _getSessionName(messages) {
+        if (messages.length === 0) return 'Empty Chat';
+        
+        // Find first user message to use as name
+        const firstUserMsg = messages.find(m => m.sender === 'You');
+        if (firstUserMsg) {
+            const words = firstUserMsg.text.trim().split(/\s+/);
+            return words.slice(0, 3).join(' ');
+        }
+        
+        // Fallback to timestamp
+        const date = new Date(messages[0].timestamp);
+        return `Chat ${date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    
+    async _saveCurrentSession() {
+        if (this._currentMessages.length === 0) return;
+        
+        const sessions = this._context.globalState.get('chatSessions', []);
+        const existingIndex = sessions.findIndex(s => s.id === this._currentSessionId);
+        
+        const sessionData = {
+            id: this._currentSessionId,
+            name: this._getSessionName(this._currentMessages),
+            messages: this._currentMessages,
+            updatedAt: Date.now()
+        };
+        
+        if (existingIndex >= 0) {
+            sessions[existingIndex] = sessionData;
+        } else {
+            sessions.unshift(sessionData);
+        }
+        
+        // Keep only last 50 sessions
+        const trimmedSessions = sessions.slice(0, 50);
+        await this._context.globalState.update('chatSessions', trimmedSessions);
+    }
+    
+    async _sendHistoryList() {
+        const sessions = this._context.globalState.get('chatSessions', []);
+        let sessionsUpdated = false;
+        
+        const sessionList = sessions.map(s => {
+            // Fix old session names that start with "Chat" followed by date
+            if (s.name && s.name.startsWith('Chat ') && s.messages) {
+                s.name = this._getSessionName(s.messages);
+                sessionsUpdated = true;
+            }
+            
+            const date = new Date(s.updatedAt);
+            const timeStr = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+            const dateStr = date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            
+            return {
+                id: s.id,
+                name: s.name,
+                displayName: `${dateStr} ${timeStr}`
+            };
+        });
+        
+        // Save updated sessions if any were fixed
+        if (sessionsUpdated) {
+            await this._context.globalState.update('chatSessions', sessions);
+        }
+        
+        if (this._view) {
+            this._view.webview.postMessage({
+                type: 'updateHistoryList',
+                sessions: sessionList
+            });
+        }
+    }
+    
+    async _startNewChat() {
+        // Save current session before starting new one
+        if (this._currentMessages.length > 0) {
+            await this._saveCurrentSession();
+        }
+        
+        // Reset state
+        this._currentMessages = [];
+        this._currentSessionId = this._generateSessionId();
+        this._pendingCommitMessage = null;
+        this._isWaitingForCommitConfirmation = false;
+        
+        // Clear UI
+        if (this._view) {
+            this._view.webview.postMessage({ type: 'clearChat' });
+        }
+        
+        // Update history list
+        await this._sendHistoryList();
+    }
+    
+    async _cleanupOldSessions() {
+        // Clear ALL old sessions to start fresh
+        await this._context.globalState.update('chatSessions', []);
+    }
+    
+    async _loadChatSession(sessionId) {
+        const sessions = this._context.globalState.get('chatSessions', []);
+        const session = sessions.find(s => s.id === sessionId);
+        
+        if (!session) return;
+        
+        // Save current session before switching
+        if (this._currentMessages.length > 0) {
+            await this._saveCurrentSession();
+        }
+        
+        // Load the selected session
+        this._currentMessages = session.messages || [];
+        this._currentSessionId = sessionId;
+        
+        // Send to webview
+        if (this._view) {
+            this._view.webview.postMessage({
+                type: 'loadChatHistory',
+                messages: this._currentMessages
+            });
         }
     }
 }
